@@ -699,6 +699,75 @@ function cURLForStep(s) {
   return lines.join(' \\\n');
 }
 function _pathSlug(p) { return (p || '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32) || 'step'; }
+function _renderStepCardBody(s, globalIdx) {
+  // 抽出原 renderSteps() 内的 step-card innerHTML 生成代码
+  // globalIdx: step 在 state.steps 中的全局索引 (0-based), 用于 seq 编号和 url-preview id
+  const method = s.api?.method || s.capture?.method || 'GET';
+  const path = s.api?.path || s.capture?.path || '/';
+  const status = s.capture?.response?.status;
+  const ms = s.capture?.response_ms;
+  const isExpanded = !state.collapsedSteps.has(s.__sid);
+  return `
+    <div class="shdr" role="button" tabindex="0" aria-expanded="${isExpanded}" aria-controls="sbody-${s.__sid}">
+      <span class="seq">${globalIdx + 1}-${escapeHtml(s.key_hint || _pathSlug(path) || 'step')}</span>
+      <span class="method-pill ${method}">${method}</span>
+      <span class="path" title="${escapeAttr(path)}">${escapeHtml(path)}</span>
+      ${status ? `<span class="status-badge s${Math.floor(status / 100)}xx">${status}</span>` : ''}
+      ${ms != null ? `<span class="ms-pill">${ms}ms</span>` : ''}
+      <span class="grow"></span>
+      <button class="curl-copy" title="复制 cURL" aria-label="复制 cURL 命令">cURL</button>
+      <button class="del" aria-label="删除 Step ${globalIdx + 1}">删除</button>
+      <button class="toggle-exp" aria-expanded="${isExpanded}" aria-controls="sbody-${s.__sid}">${isExpanded ? '收起' : '展开'}</button>
+    </div>
+    <div class="sbody" id="sbody-${s.__sid}" role="region" aria-label="Step ${globalIdx + 1} 详情">
+      <div class="sub-tabs" role="tablist">
+        <button class="active" data-sub="api" role="tab" aria-selected="true">API</button>
+        <button data-sub="req" role="tab" aria-selected="false">Request</button>
+        <button data-sub="str" role="tab" aria-selected="false">Strategy</button>
+      </div>
+      <div class="url-preview" id="url-preview-${globalIdx}"></div>
+      <div class="sub-pane" data-pane="api">
+        <div class="field-row"><label>service</label>
+          <input class="fin mono" data-sf="service" value="${escapeAttr(s.api?.service || '')}" list="svc-list" />
+          <datalist id="svc-list">
+            ${Object.keys(state.services).map((k) => `<option value="${escapeAttr(k)}">`).join('')}
+          </datalist>
+        </div>
+        <div class="field-row"><label>method</label>
+          <select class="fin" data-sf="method">
+            ${['GET','POST','PUT','DELETE','PATCH','HEAD','OPTIONS'].map((m) =>
+              `<option ${s.api?.method === m ? 'selected' : ''}>${m}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row"><label>path</label>
+          <input class="fin mono" data-sf="path" value="${escapeAttr(s.api?.path || '')}" />
+        </div>
+        <div class="field-row"><label>key_hint</label>
+          <input class="fin" data-sf="key_hint" value="${escapeAttr(s.key_hint || '')}" placeholder="如 call_login" />
+        </div>
+      </div>
+      <div class="sub-pane" data-pane="req" hidden>
+        <div class="field-row"><label>params (JSON)</label>
+          <textarea class="fin fta mono" data-sf="params" rows="2">${escapeHtml(JSON.stringify(s.req?.params || {}, null, 2))}</textarea>
+        </div>
+        <div class="field-row"><label>body (JSON)</label>
+          <textarea class="fin fta mono" data-sf="body" rows="6">${escapeHtml(JSON.stringify(s.req?.body || {}, null, 2))}</textarea>
+        </div>
+        <div class="field-row"><label>headers (JSON)</label>
+          <textarea class="fin fta mono" data-sf="headers" rows="3">${escapeHtml(JSON.stringify(s.req?.headers || {}, null, 2))}</textarea>
+        </div>
+      </div>
+      <div class="sub-pane" data-pane="str" hidden>
+        <div id="str-list-${s.__sid}"></div>
+        <div class="add-row">
+          <button class="add-btn" data-add="assertion">+ assertion</button>
+          <button class="add-btn" data-add="extract">+ extract</button>
+          <button class="add-btn" data-add="assign">+ assign</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
 function updateUrlPreview(card, s) {
   const el = card.querySelector('.url-preview');
   if (!el) return;
@@ -713,229 +782,236 @@ function updateUrlPreview(card, s) {
 function syncStepEmpty() { $('step-empty').hidden = state.steps.length > 0; }
 function ensureStepIds() { state.steps.forEach((s) => { if (!s.__sid) s.__sid = uid('step'); }); }
 
-function renderSteps() {
-  const box = $('step-list');
-  box.innerHTML = '';
-  ensureStepIds();
-  state.steps.forEach((s, i) => {
-    const isExpanded = !state.collapsedSteps.has(s.__sid);
-    const card = document.createElement('div');
-    card.className = 'step-card' + (isExpanded ? '' : ' collapsed');
-    card.dataset.sid = s.__sid;
-    card.dataset.idx = String(i);
-    card.draggable = true;
-    const method = s.api?.method || s.capture?.method || 'GET';
-    const path = s.api?.path || s.capture?.path || '/';
-    const status = s.capture?.response?.status;
-    const ms = s.capture?.response_ms;
-    card.innerHTML = `
-      <div class="shdr" role="button" tabindex="0" aria-expanded="${isExpanded}" aria-controls="sbody-${s.__sid}">
-        <span class="seq">${i + 1}-${escapeHtml(s.key_hint || _pathSlug(path) || 'step')}</span>
-        <span class="method-pill ${method}">${method}</span>
-        <span class="path" title="${escapeAttr(path)}">${escapeHtml(path)}</span>
-        ${status ? `<span class="status-badge s${Math.floor(status / 100)}xx">${status}</span>` : ''}
-        ${ms != null ? `<span class="ms-pill">${ms}ms</span>` : ''}
-        <span class="grow"></span>
-        <button class="curl-copy" title="复制 cURL" aria-label="复制 cURL 命令">cURL</button>
-        <button class="del" aria-label="删除 Step ${i + 1}">删除</button>
-        <button class="toggle-exp" aria-expanded="${isExpanded}" aria-controls="sbody-${s.__sid}">${isExpanded ? '收起' : '展开'}</button>
-      </div>
-      <div class="sbody" id="sbody-${s.__sid}" role="region" aria-label="Step ${i + 1} 详情">
-        <div class="sub-tabs" role="tablist">
-          <button class="active" data-sub="api" role="tab" aria-selected="true">API</button>
-          <button data-sub="req" role="tab" aria-selected="false">Request</button>
-          <button data-sub="str" role="tab" aria-selected="false">Strategy</button>
-        </div>
-        <div class="url-preview" id="url-preview-${i}"></div>
-        <div class="sub-pane" data-pane="api">
-          <div class="field-row"><label>service</label>
-            <input class="fin mono" data-sf="service" value="${escapeAttr(s.api?.service || '')}" list="svc-list" />
-            <datalist id="svc-list">
-              ${Object.keys(state.services).map((k) => `<option value="${escapeAttr(k)}">`).join('')}
-            </datalist>
-          </div>
-          <div class="field-row"><label>method</label>
-            <select class="fin" data-sf="method">
-              ${['GET','POST','PUT','DELETE','PATCH','HEAD','OPTIONS'].map((m) =>
-                `<option ${s.api?.method === m ? 'selected' : ''}>${m}</option>`).join('')}
-            </select>
-          </div>
-          <div class="field-row"><label>path</label>
-            <input class="fin mono" data-sf="path" value="${escapeAttr(s.api?.path || '')}" />
-          </div>
-          <div class="field-row"><label>key_hint</label>
-            <input class="fin" data-sf="key_hint" value="${escapeAttr(s.key_hint || '')}" placeholder="如 call_login" />
-          </div>
-        </div>
-        <div class="sub-pane" data-pane="req" hidden>
-          <div class="field-row"><label>params (JSON)</label>
-            <textarea class="fin fta mono" data-sf="params" rows="2">${escapeHtml(JSON.stringify(s.req?.params || {}, null, 2))}</textarea>
-          </div>
-          <div class="field-row"><label>body (JSON)</label>
-            <textarea class="fin fta mono" data-sf="body" rows="6">${escapeHtml(JSON.stringify(s.req?.body || {}, null, 2))}</textarea>
-          </div>
-          <div class="field-row"><label>headers (JSON)</label>
-            <textarea class="fin fta mono" data-sf="headers" rows="3">${escapeHtml(JSON.stringify(s.req?.headers || {}, null, 2))}</textarea>
-          </div>
-        </div>
-        <div class="sub-pane" data-pane="str" hidden>
-          <div id="str-list-${s.__sid}"></div>
-          <div class="add-row">
-            <button class="add-btn" data-add="assertion">+ assertion</button>
-            <button class="add-btn" data-add="extract">+ extract</button>
-            <button class="add-btn" data-add="assign">+ assign</button>
-          </div>
-        </div>
-      </div>
-    `;
-    // shdr 整行切换
-    const shdr = card.querySelector('.shdr');
-    shdr.addEventListener('click', (e) => {
-      // 按钮自身的 click 阻止冒泡,这里只处理"点空白"
-      if (e.target.closest('button')) return;
-      toggleStep(s, card);
-    });
-    shdr.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        if (e.target === shdr) { e.preventDefault(); toggleStep(s, card); }
-      }
-    });
-    card.querySelector('.shdr .del').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const ok = await confirmModal('删除 Step', `确定删除 Step ${i + 1} (${method} ${path})?`, { ok: '删除' });
-      if (!ok) return;
-      state.steps.splice(i, 1);
-      state.expandedSteps.delete(s.__sid);
-      state.collapsedSteps.delete(s.__sid);
-      pushHistory();
+function renderStepSidebar() {
+  const nav = $('step-sidebar');
+  if (!nav) return;
+  if (state.steps.length === 0) { nav.innerHTML = ''; return; }
+  const ranges = _computePageRanges();
+  nav.innerHTML = ranges.map((r, i) => {
+    const active = (i + 1) === state.currentPage;
+    return `<button class="page-tab${active ? ' active' : ''}" data-page="${i + 1}" role="tab" aria-selected="${active}">
+      ${r.label}<span class="page-count">${r.end - r.start} / ${state.steps.length}</span>
+    </button>`;
+  }).join('');
+  nav.querySelectorAll('.page-tab').forEach((b) => {
+    b.addEventListener('click', () => {
+      const k = parseInt(b.dataset.page, 10);
+      if (!Number.isFinite(k)) return;
+      state.currentPage = Math.min(Math.max(1, k), _computePageRanges().length || 1);
       renderSteps();
     });
-    card.querySelector('.toggle-exp').addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleStep(s, card);
-    });
-    card.querySelector('.curl-copy').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const text = cURLForStep(s);
-      try { await navigator.clipboard.writeText(text); toast(`Step ${i + 1} cURL 已复制`, 'success', 1500); }
-      catch (_) { toast('复制失败', 'error'); }
-    });
-    card.querySelectorAll('.sub-tabs button').forEach((b) => {
-      b.addEventListener('click', (e) => {
-        e.stopPropagation();
-        card.querySelectorAll('.sub-tabs button').forEach((x) => {
-          x.classList.remove('active');
-          x.setAttribute('aria-selected', 'false');
-        });
-        b.classList.add('active');
-        b.setAttribute('aria-selected', 'true');
-        card.querySelectorAll('.sub-pane').forEach((p) => { p.hidden = p.dataset.pane !== b.dataset.sub; });
-      });
-    });
-    card.querySelectorAll('[data-sf]').forEach((el) => {
-      el.addEventListener('input', () => {
-        const f = el.dataset.sf;
-        let v = el.value;
-        if (['params','body','headers'].includes(f)) {
-          try { v = JSON.parse(v); el.classList.remove('invalid'); }
-          catch (_) { el.classList.add('invalid'); toast(`JSON 解析失败: ${f}`, 'error', 1800); return; }
-        }
-        if (f === 'service' || f === 'method' || f === 'path') {
-          s.api = s.api || {}; s.api[f] = v;
-        } else if (f === 'key_hint') {
-          s.key_hint = v;
-        } else {
-          s.req = s.req || {}; s.req[f] = v;
-        }
-        if (f === 'method' || f === 'path' || f === 'service') {
-          updateUrlPreview(card, s);
-          if (f === 'method' || f === 'path') {
-            // 只更新当前卡片,不全量重渲染
-            card.querySelector('.method-pill').textContent = (s.api.method || 'GET').toUpperCase();
-            card.querySelector('.method-pill').className = `method-pill ${s.api.method || 'GET'}`;
-            card.querySelector('.path').textContent = s.api.path || '/';
-            card.querySelector('.path').title = s.api.path || '/';
-            const seq = card.querySelector('.seq');
-            seq.textContent = `${i + 1}-${s.key_hint || _pathSlug(s.api.path) || 'step'}`;
-          }
-        }
-        scheduleSave();
-      });
-    });
-    s.assertions = s.assertions || [];
-    s.extracts = s.extracts || [];
-    s.assigns = s.assigns || [];
-    const strList = card.querySelector(`#str-list-${s.__sid}`);
-    function renderStr() {
-      strList.innerHTML = '';
-      const items = [
-        ...s.assertions.map((a) => ({ kind: 'assertion', data: a })),
-        ...s.extracts.map((e) => ({ kind: 'extract', data: e })),
-        ...s.assigns.map((a) => ({ kind: 'assign', data: a })),
-      ];
-      if (!items.length) {
-        const empty = document.createElement('div');
-        empty.className = 'empty-state-sm';
-        empty.textContent = '尚无策略 — 添加 assertion / extract / assign';
-        strList.appendChild(empty);
-        return;
-      }
-      items.forEach((it) => {
-        const div = document.createElement('div');
-        div.className = 'strategy-item';
-        const summary = it.kind === 'assertion'
-          ? `${it.data.target || 'response_status'} ${it.data.operator || 'eq'} ${JSON.stringify(it.data.expected)}`
-          : it.kind === 'extract'
-            ? `${it.data.expression} → ${it.data.target}`
-            : `${it.data.source} → ${it.data.target}`;
-        div.innerHTML = `
-          <span class="type-pill">${it.kind}</span>
-          <span class="target" title="${escapeAttr(summary)}">${escapeHtml(summary)}</span>
-          <button class="edit" aria-label="编辑">✎</button>
-          <button class="del" aria-label="删除">×</button>`;
-        div.querySelector('.del').addEventListener('click', (e) => {
-          e.stopPropagation();
-          if (it.kind === 'assertion') s.assertions = s.assertions.filter((x) => x !== it.data);
-          if (it.kind === 'extract') s.extracts = s.extracts.filter((x) => x !== it.data);
-          if (it.kind === 'assign') s.assigns = s.assigns.filter((x) => x !== it.data);
-          pushHistory();
-          renderStr();
-        });
-        div.querySelector('.edit').addEventListener('click', (e) => {
-          e.stopPropagation();
-          openStrategyEditor(it, () => { pushHistory(); renderStr(); });
-        });
-        strList.appendChild(div);
-      });
-    }
-    renderStr();
-    card.querySelectorAll('[data-add]').forEach((b) => {
-      b.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const k = b.dataset.add;
-        const newItem = k === 'assertion'
-          ? { name: `a${s.assertions.length}`, target: 'response_status', operator: 'eq', expected: 200, message: '' }
-          : k === 'extract'
-            ? { name: `e${s.extracts.length}`, expression: '$.data.id', target: 'id', scope: 'scenario' }
-            : { name: `as${s.assigns.length}`, source: '', target: '', scope: 'scenario' };
-        openStrategyEditor({ kind: k, data: newItem }, (edited) => {
-          if (k === 'assertion') s.assertions.push(edited);
-          if (k === 'extract') s.extracts.push(edited);
-          if (k === 'assign') s.assigns.push(edited);
-          pushHistory();
-          renderStr();
-        }, true);
-      });
-    });
-    bindDragSort(card, i, (from, to) => {
-      const [moved] = state.steps.splice(from, 1);
-      state.steps.splice(to, 0, moved);
-      pushHistory();
-      renderSteps();
-    });
-    box.appendChild(card);
-    updateUrlPreview(card, s);
   });
+}
+
+function renderStepTags() {
+  const box = $('step-tags');
+  if (!box) return;
+  if (state.steps.length === 0) { box.innerHTML = ''; return; }
+  const ranges = _computePageRanges();
+  const range = ranges[state.currentPage - 1];
+  if (!range) { box.innerHTML = ''; return; }
+  const pageSteps = state.steps.slice(range.start, range.end);
+  box.innerHTML = pageSteps.map((s) => {
+    const method = (s.api?.method || s.capture?.method || 'GET').toUpperCase();
+    const path = s.api?.path || s.capture?.path || '/';
+    const active = state.expandedStepSid === s.__sid;
+    return `<div class="step-tag${active ? ' active' : ''}" data-sid="${escapeAttr(s.__sid)}" draggable="true" role="listitem" tabindex="0">
+      <span class="method-pill ${method}">${method}</span>
+      <span class="path" title="${escapeAttr(path)}">${escapeHtml(path)}</span>
+      <button class="del" aria-label="删除 Step">×</button>
+    </div>`;
+  }).join('');
+  // 事件: tag click → 展开/收起
+  box.querySelectorAll('.step-tag').forEach((tagEl) => {
+    const sid = tagEl.dataset.sid;
+    tagEl.addEventListener('click', (e) => {
+      if (e.target.closest('.del')) return;  // 删除按钮独立处理
+      state.expandedStepSid = (state.expandedStepSid === sid) ? null : sid;
+      renderSteps();
+    });
+    tagEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        state.expandedStepSid = (state.expandedStepSid === sid) ? null : sid;
+        renderSteps();
+      }
+    });
+  });
+}
+
+function renderStepDetail() {
+  const det = $('step-detail');
+  if (!det) return;
+  if (!state.expandedStepSid) { det.hidden = true; det.innerHTML = ''; return; }
+  const s = state.steps.find((x) => x.__sid === state.expandedStepSid);
+  if (!s) { det.hidden = true; det.innerHTML = ''; return; }
+  const globalIdx = state.steps.indexOf(s);
+  det.hidden = false;
+  det.innerHTML = `<div class="step-card" data-sid="${escapeAttr(s.__sid)}" data-idx="${globalIdx}">${_renderStepCardBody(s, globalIdx)}</div>`;
+  // 触发原 step-card 内部的事件绑定 (复用现有 attach logic)
+  // 简化: 重新走一遍原 renderSteps 内的事件绑定 (见 attachStepCardEvents)
+  attachStepCardEvents(det.querySelector('.step-card'), s, globalIdx);
+}
+
+function attachStepCardEvents(card, s, globalIdx) {
+  // 抽出原 renderSteps() 内的 step-card 事件绑定代码 (约 app.js:789-936)
+  // 输入: card DOM 元素 + step 对象 + 全局索引
+  // 行为: 绑定 shdr click / del / curl-copy / sub-tabs / data-sf / strategy items
+  const shdr = card.querySelector('.shdr');
+  shdr.addEventListener('click', (e) => {
+    if (e.target.closest('button')) return;
+    toggleStep(s, card);
+  });
+  shdr.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      if (e.target === shdr) { e.preventDefault(); toggleStep(s, card); }
+    }
+  });
+  const method = s.api?.method || s.capture?.method || 'GET';
+  const path = s.api?.path || s.capture?.path || '/';
+  card.querySelector('.shdr .del').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const ok = await confirmModal('删除 Step', `确定删除 Step ${globalIdx + 1} (${method} ${path})?`, { ok: '删除' });
+    if (!ok) return;
+    state.steps.splice(globalIdx, 1);
+    state.expandedSteps.delete(s.__sid);
+    state.collapsedSteps.delete(s.__sid);
+    if (state.expandedStepSid === s.__sid) state.expandedStepSid = null;
+    pushHistory();
+    renderSteps();
+  });
+  card.querySelector('.toggle-exp').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleStep(s, card);
+  });
+  card.querySelector('.curl-copy').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const text = cURLForStep(s);
+    try { await navigator.clipboard.writeText(text); toast(`Step ${globalIdx + 1} cURL 已复制`, 'success', 1500); }
+    catch (_) { toast('复制失败', 'error'); }
+  });
+  card.querySelectorAll('.sub-tabs button').forEach((b) => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      card.querySelectorAll('.sub-tabs button').forEach((x) => {
+        x.classList.remove('active');
+        x.setAttribute('aria-selected', 'false');
+      });
+      b.classList.add('active');
+      b.setAttribute('aria-selected', 'true');
+      card.querySelectorAll('.sub-pane').forEach((p) => { p.hidden = p.dataset.pane !== b.dataset.sub; });
+    });
+  });
+  card.querySelectorAll('[data-sf]').forEach((el) => {
+    el.addEventListener('input', () => {
+      const f = el.dataset.sf;
+      let v = el.value;
+      if (['params','body','headers'].includes(f)) {
+        try { v = JSON.parse(v); el.classList.remove('invalid'); }
+        catch (_) { el.classList.add('invalid'); toast(`JSON 解析失败: ${f}`, 'error', 1800); return; }
+      }
+      if (f === 'service' || f === 'method' || f === 'path') {
+        s.api = s.api || {}; s.api[f] = v;
+      } else if (f === 'key_hint') {
+        s.key_hint = v;
+      } else {
+        s.req = s.req || {}; s.req[f] = v;
+      }
+      if (f === 'method' || f === 'path' || f === 'service') {
+        updateUrlPreview(card, s);
+        if (f === 'method' || f === 'path') {
+          card.querySelector('.method-pill').textContent = (s.api.method || 'GET').toUpperCase();
+          card.querySelector('.method-pill').className = `method-pill ${s.api.method || 'GET'}`;
+          card.querySelector('.path').textContent = s.api.path || '/';
+          card.querySelector('.path').title = s.api.path || '/';
+          const seq = card.querySelector('.seq');
+          seq.textContent = `${globalIdx + 1}-${s.key_hint || _pathSlug(s.api.path) || 'step'}`;
+        }
+      }
+      scheduleSave();
+    });
+  });
+  s.assertions = s.assertions || [];
+  s.extracts = s.extracts || [];
+  s.assigns = s.assigns || [];
+  const strList = card.querySelector(`#str-list-${s.__sid}`);
+  function renderStr() {
+    strList.innerHTML = '';
+    const items = [
+      ...s.assertions.map((a) => ({ kind: 'assertion', data: a })),
+      ...s.extracts.map((e) => ({ kind: 'extract', data: e })),
+      ...s.assigns.map((a) => ({ kind: 'assign', data: a })),
+    ];
+    if (!items.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state-sm';
+      empty.textContent = '尚无策略 — 添加 assertion / extract / assign';
+      strList.appendChild(empty);
+      return;
+    }
+    items.forEach((it) => {
+      const div = document.createElement('div');
+      div.className = 'strategy-item';
+      const summary = it.kind === 'assertion'
+        ? `${it.data.target || 'response_status'} ${it.data.operator || 'eq'} ${JSON.stringify(it.data.expected)}`
+        : it.kind === 'extract'
+          ? `${it.data.expression} → ${it.data.target}`
+          : `${it.data.source} → ${it.data.target}`;
+      div.innerHTML = `
+        <span class="type-pill">${it.kind}</span>
+        <span class="target" title="${escapeAttr(summary)}">${escapeHtml(summary)}</span>
+        <button class="edit" aria-label="编辑">✎</button>
+        <button class="del" aria-label="删除">×</button>`;
+      div.querySelector('.del').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (it.kind === 'assertion') s.assertions = s.assertions.filter((x) => x !== it.data);
+        if (it.kind === 'extract') s.extracts = s.extracts.filter((x) => x !== it.data);
+        if (it.kind === 'assign') s.assigns = s.assigns.filter((x) => x !== it.data);
+        pushHistory();
+        renderStr();
+      });
+      div.querySelector('.edit').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openStrategyEditor(it, () => { pushHistory(); renderStr(); });
+      });
+      strList.appendChild(div);
+    });
+  }
+  renderStr();
+  card.querySelectorAll('[data-add]').forEach((b) => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const k = b.dataset.add;
+      const newItem = k === 'assertion'
+        ? { name: `a${s.assertions.length}`, target: 'response_status', operator: 'eq', expected: 200, message: '' }
+        : k === 'extract'
+          ? { name: `e${s.extracts.length}`, expression: '$.data.id', target: 'id', scope: 'scenario' }
+          : { name: `as${s.assigns.length}`, source: '', target: '', scope: 'scenario' };
+      openStrategyEditor({ kind: k, data: newItem }, (edited) => {
+        if (k === 'assertion') s.assertions.push(edited);
+        if (k === 'extract') s.extracts.push(edited);
+        if (k === 'assign') s.assigns.push(edited);
+        pushHistory();
+        renderStr();
+      }, true);
+    });
+  });
+  card.draggable = true;
+  bindDragSort(card, globalIdx, (from, to) => {
+    const [moved] = state.steps.splice(from, 1);
+    state.steps.splice(to, 0, moved);
+    pushHistory();
+    renderSteps();
+  });
+  updateUrlPreview(card, s);
+}
+
+function renderSteps() {
+  ensureStepIds();
+  _syncStepPagination();
+  renderStepSidebar();
+  renderStepTags();
+  renderStepDetail();
   syncStepEmpty();
 }
 function toggleStep(s, card) {
