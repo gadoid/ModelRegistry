@@ -938,6 +938,7 @@ function attachStepCardEvents(card, s, globalIdx) {
     state.expandedSteps.delete(s.__sid);
     state.collapsedSteps.delete(s.__sid);
     if (state.expandedStepSid === s.__sid) state.expandedStepSid = null;
+    _syncStepPagination();
     pushHistory();
     renderSteps();
   });
@@ -1080,8 +1081,6 @@ function toggleStep(s, card) {
   card.querySelector('.toggle-exp').textContent = collapsed ? '展开' : '收起';
   card.querySelector('.toggle-exp').setAttribute('aria-expanded', String(!collapsed));
   card.querySelector('.shdr').setAttribute('aria-expanded', String(!collapsed));
-  if (collapsed) state.collapsedSteps.add(s.__sid);
-  else state.collapsedSteps.delete(s.__sid);
 }
 $('add-step').addEventListener('click', (e) => {
   e.stopPropagation();
