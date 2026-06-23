@@ -837,6 +837,67 @@ function renderStepTags() {
       }
     });
   });
+  // 删除按钮
+  box.querySelectorAll('.step-tag .del').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const tagEl = btn.closest('.step-tag');
+      const sid = tagEl?.dataset.sid;
+      const globalIdx = state.steps.findIndex((x) => x.__sid === sid);
+      if (globalIdx < 0) return;
+      const s = state.steps[globalIdx];
+      const method = s.api?.method || s.capture?.method || 'GET';
+      const path = s.api?.path || s.capture?.path || '/';
+      const ok = await confirmModal('删除 Step', `确定删除 Step ${globalIdx + 1} (${method} ${path})?`, { ok: '删除' });
+      if (!ok) return;
+      state.steps.splice(globalIdx, 1);
+      if (state.expandedStepSid === sid) state.expandedStepSid = null;
+      pushHistory();
+      _syncStepPagination();
+      renderSteps();
+    });
+  });
+  // 拖拽重排 (当前页内 10 个 tag)
+  let _dragFromIdx = null;
+  box.querySelectorAll('.step-tag').forEach((tagEl) => {
+    tagEl.addEventListener('dragstart', (e) => {
+      const sid = tagEl.dataset.sid;
+      _dragFromIdx = state.steps.findIndex((x) => x.__sid === sid);
+      tagEl.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    tagEl.addEventListener('dragend', () => {
+      tagEl.classList.remove('dragging');
+      box.querySelectorAll('.step-tag.drag-over').forEach((x) => x.classList.remove('drag-over'));
+      _dragFromIdx = null;
+    });
+    tagEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (_dragFromIdx == null) return;
+      tagEl.classList.add('drag-over');
+    });
+    tagEl.addEventListener('dragleave', () => {
+      tagEl.classList.remove('drag-over');
+    });
+    tagEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      tagEl.classList.remove('drag-over');
+      if (_dragFromIdx == null) return;
+      const sid = tagEl.dataset.sid;
+      const toGlobalIdx = state.steps.findIndex((x) => x.__sid === sid);
+      if (toGlobalIdx < 0 || toGlobalIdx === _dragFromIdx) return;
+      // 仅在当前页内允许重排 (pageSteps 内)
+      const range = _computePageRanges()[state.currentPage - 1];
+      if (!range) return;
+      if (_dragFromIdx < range.start || _dragFromIdx >= range.end) return;
+      if (toGlobalIdx < range.start || toGlobalIdx >= range.end) return;
+      const [moved] = state.steps.splice(_dragFromIdx, 1);
+      state.steps.splice(toGlobalIdx, 0, moved);
+      pushHistory();
+      scheduleSave();
+      renderSteps();
+    });
+  });
 }
 
 function renderStepDetail() {
