@@ -304,7 +304,7 @@ gimbal prism start --port 8765
 | ① | 元信息 | `Meta` 字段：name、description、module、priority、author、owner、tags、version、expire、requirementRef、scenarioId |
 | ② | 配置 | `Config` + 子结构：`Services`（alias → base URL）、`Users`（AuthSession）、`TimePolicy`、`Retry`（max / backoff / on）、`Setup` / `Teardown` refs |
 | ③ | 资源 | 4 种资源 kind 网格：DB 接入、Mock 接口、文件上传、变量 |
-| ④ | Steps | 步骤列表：method pill + 路径 + 折叠/展开 + cURL 复制 + strategy 编辑（断言/提取/赋值） |
+| ④ | Steps | **分页布局**：左侧 1-10/11-20 侧栏 + 右侧 step 标签流（method + path）。**空状态可点击** 弹出 .ndjson 文件选择器，也支持拖入 .ndjson。点击 tag 展开完整编辑（API/Request/Strategy 三子 tab）。 |
 
 **v0.5 视觉规范**：
 - 顶部 sticky 栏（深色）+ status dot（绿/黄/橙三态）+ captures badge + undo/redo/help 按钮
@@ -316,6 +316,22 @@ gimbal prism start --port 8765
 - Toast 系统：右下角（实为 top-right `60px`）即时反馈
 - 拖拽重排：tags / services / resources / steps 都支持
 - 快捷键：`Ctrl+S` 保存 / `Ctrl+Z` 撤销 / `Ctrl+Y` 重做 / `Ctrl+1..4` 切 tab / `?` 打开 help / `Esc` 关闭 modal
+
+#### 5.2.5 v0.5.5 Step 分页 + 文件选择器（v0.5.5 起）
+
+**新增**：
+- 左侧垂直侧栏按 10 个一组显示 `1-10`、`11-20`、`21-30` ...（鼠标 hover 高亮，点击切换）
+- 右侧横向 tag 流，每 tag 仅显示 method pill + path，hover 出现删除 × 按钮
+- 展开/收起：点 tag → 下方展开完整 step 编辑面板（API/Request/Strategy 三子 tab），再点同一 tag 收起
+- 拖拽重排：拖 tag 在当前页 10 个内重排
+- 拖入 `.ndjson` 到 step 区域 / 空状态框触发导入（限定 `.ndjson` 后缀）
+
+**删除**：
+- 「全部展开」/「全部折叠」按钮（单展开手风琴替代）
+- 步骤导入行（输入框 + 导入按钮）；改由空状态框点击弹出文件选择器
+- `.json` 文件导入支持（v0.5.5 起只接受 `.ndjson`）
+
+**自动跳转**：删除 step 后，若 `currentPage` 越界，自动跳到最后一页有效页码。
 
 ### 5.3 HTTP 端点
 

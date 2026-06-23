@@ -1,5 +1,55 @@
 # Changelog
 
+## v0.5.5 (2026-06-23) — Step 分页 + 空状态文件选择器
+
+### 新增 (Added)
+
+- **Step 分页侧栏**：左侧垂直 1-10 / 11-20 / 21-30 索引，sticky 滚动；右侧 10 个 step 的横向 tag 流 (method + path)
+- **空状态文件选择器**：`#step-empty` 框可点击 / Enter / Space → 弹出原生文件选择器；拖拽 `.ndjson` 到 step 区域 / 空状态框也触发导入
+- **单展开手风琴**：点击 tag → 下方展开完整 step 编辑（API/Request/Strategy 三子 tab）；再点同 tag 收起；点别 tag 自动收起前一个
+- **tag 删除按钮 + 拖拽重排**：hover tag 出现 ×；拖 tag 在当前页 10 个内重排（跨页守卫）
+- **`state.currentPage` / `state.expandedStepSid` / `PAGE_SIZE = 10`** 新 state 字段 + 派生原语 (`_syncStepPagination` / `_computePageRanges`)
+- **`_importNdjsonFile`** 替代旧 `importFromFile`，加空文件早返
+
+### 删除 (Removed)
+
+- 「全部展开」/「全部折叠」按钮（单展开替代）
+- 步骤导入行（输入框 + 按钮），改由空状态框触发
+- 前端 `importFromPath` 函数（无新调用方；后端 `/api/captures/import-from-path` 端点保留向后兼容）
+- `.json` 文件导入支持（v0.5.5 起只接受 `.ndjson`）
+
+### 保留 (Retained for backward compat)
+
+- `/api/captures/import-from-path` 后端端点（v0.5 历史已暴露）
+- `state.expandedSteps` / `state.collapsedSteps` Set 字段（供 undo/redo 历史栈 serialize 形状兼容）
+- 「实时捕获」面板（含「自动注入 step」toggle），行为不变
+
+### 文件变更
+
+- `gimbal/prism/static/app.js`: 拆 `renderSteps` → 3 个子渲染器 + 4 类交互绑定
+- `gimbal/prism/static/index.html`: 删 import-row / expand-all / collapse-all；加 `<input type="file">`；改 `#step-empty`；包 `.step-layout`
+- `gimbal/prism/static/style.css`: 追加 `.step-layout` / `.step-sidebar` / `.step-tag` 等 13 个新类（复用现有 CSS 变量，0 个新 token）
+- `tests/test_frontend_v1.py`: 更新 step 工具栏 ID 断言
+- `tests/test_step_pagination_state.py` (新): 8 个静态测试
+- `tests/test_step_pagination_css.py` (新): 4 个 CSS 测试
+- `tests/test_render_steps_refactor.py` (新): 3 个 refactor 测试
+- `tests/test_tag_drag_delete.py` (新): 2 个 tag 交互测试
+- `tests/test_step_import_ux.py` (新): 7 个 import UX 测试
+- `tests/test_step_pagination.py` (新): 4 个 E2E 分页测试
+- `tests/test_step_import_e2e.py` (新): 4 个 E2E 导入测试
+- `tests/fixtures/sample_captures.ndjson` (新): 3 条 sample NDJSON
+- `USER_MANUAL.md`: §5.2 表格 + §5.2.5 新章节
+- `docs/superpowers/specs/2026-06-23-step-pagination-and-import-design.md` (新): 设计文档
+- `docs/superpowers/plans/2026-06-23-step-pagination-and-import.md` (新): 实施计划
+
+### E2E 验证
+
+- 237 passed / 4 skipped (无回归; v0.5.8 基线 202 + 35 新增)
+- HTTP-level: 25-step draft 持久化 / .ndjson 注入 / 草稿往返
+- 手动 smoke: 见 plan Task 10 10 步验收清单
+
+---
+
 ## v0.5.8 (2026-06-22) — meta.name 默认 "template"
 
 ### 变更 (Changed)
