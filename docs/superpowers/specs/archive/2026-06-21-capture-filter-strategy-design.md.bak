@@ -1,0 +1,1027 @@
+# Capture Filter Strategy 设计文档
+
+> **日期**：2026-06-21
+> **作者**：gimbal team
+> **范围**：`gimbal capture` 子命令
+> **状态**：设计稿（待实现）
+
+## 1. 背景与目标
+
+### 1.1 现状（v0.1.0）
+
+`gimbal capture` 的筛选能力由 `gimbal/capture/filter.py` 的 `PathFilter` 类提供：
+
+- 仅支持 path 前缀匹配（CSV 形式）
+- 通过 CLI `--filter '/api/order,/api/user'` 传入
+- 默认值 `/api/`，所以默认只录 API 请求
+- 不能按 host、HTTP method 过滤
+- 没有配置文件，所有规则必须在命令行一次性给完
+- 不能复用、不能分层、不能叠加
+
+### 1.2 痛点
+
+1. 真实业务往往需要同时筛选 host + path + method（"录 `api.example.com` 下的 `POST /api/order`"），v0 无法表达
+2. 同一团队不同环境（smoke / e2e / debug）的筛选规则无法版本化管理，只能在 shell 历史里翻
+3. 临时调试（"额外再录一下 `/api/debug`"）只能重写整个 `--filter`，丢失原规则
+4. 公共黑名单（如永不录 `/api/auth/login`）无法跨项目复用
+
+### 1.3 目标
+
+为 `gimbal capture` 增加一个 **YAML 筛选配置文件**，具备：
+
+1. **多维度筛选**：path（前缀 + glob + 正则）、HTTP method、host（精确 + glob + 正则）
+2. **多 profile**：一个文件里多套命名策略，命令行显式选一套
+3. **include 复用**：通过 `includes` 字段组合多文件，公共黑名单放共享文件
+4. **白/黑名单模式**：顶层 `mode` 决定默认方向，单条 rule 可覆盖
+5. **CLI 追加合并**：`--filter CSV` 永远作为额外 rule 追加到文件规则之后
+6. **向后兼容**：现有 `gimbal capture start --filter /api/` 行为不变
+
+### 1.4 v0 不做（YAGNI）
+
+- ❌ header / cookie 黑名单（用户已剔除）
+- ❌ 用户自定义插件 / Strategy 类
+- ❌ JSON / TOML 配置（YAML 已够）
+- ❌ 远程配置中心（仅本地文件）
+- ❌ 热重载（mitmdump 子进程内 build 一次即可）
+- ❌ 跨平台 path glob 差异处理（统一用 `fnmatch` + `pathlib`）
+
+---
+
+## 2. 架构总览
+
+### 2.1 模块边界
+
+新增 2 个文件、改 2 个文件：
+
+| 文件 | 类型 | 职责 |
+|---|---|---|
+| `gimbal/capture/strategy.py` | **新增** | `Rule` / `Profile` / `StrategyFile` 数据类 + `CompiledRule` / `CompiledMatcher` |
+| `gimbal/capture/loader.py` | **新增** | YAML 解析 + include 递归 + profile 选择 + CLI 追加 |
+| `gimbal/capture/filter.py` | **保留** | `PathFilter`（CSV 兼容层，给没配文件的旧命令用） |
+| `gimbal/capture/cli.py` | **改** | 渲染 addon 时改用 `loader.build_matcher(...)` |
+| `gimbal/capture/proxy.py` | **改** | `response()` 接受 `CompiledMatcher`，调用 `matcher.match(event_dict)` |
+
+### 2.2 关键不变量
+
+1. **`filter.py` 兼容**：CSV 调用方式保留，旧命令不报错
+2. **addon 脚本独立解析**：`loader` 在 mitmdump 子进程里跑（与 `PathFilter` 相同的脚本注入方式）
+3. **零反向依赖**：strategy / loader 不 import `gimbal.prism.*`
+4. **零新增依赖**：用已装的 `PyYAML>=6.0`，正则走标准库 `re` 和 `fnmatch`
+
+### 2.3 数据流
+
+```
+CLI 参数
+  --filter-file filters.yaml
+  --filter-profile smoke
+  --filter "/api/debug"
+  --filter-mode include
+        │
+        ▼
+loader.build_matcher(file_path, profile, cli_csv, cli_mode)
+        │
+        ├─ discover_filter_file()        # --filter-file 优先, 否则自动
+        ├─ load_yaml + validate         # → StrategyFile
+        ├─ resolve_includes()            # 递归 + 循环检测
+        ├─ select_profile()              # 显式或 default
+        ├─ append_cli_rules()            # CSV 转 Rule 追加
+        ├─ compile_matcher()             # 正则预编译
+        │
+        ▼
+CompiledMatcher (compiled): list[CompiledRule]
+        │
+        ▼ 注入到 mitmdump addon 脚本
+proxy.response(flow):
+  if matcher.match(event_dict):   # 任一 rule 命中 → pass
+    bus.write(event)
+```
+
+---
+
+## 3. 数据模型
+
+### 3.1 Pydantic 模型
+
+```python
+# gimbal/capture/strategy.py
+
+from enum import Enum
+from pathlib import Path
+from typing import Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+class FilterMode(str, Enum):
+    INCLUDE = "include"
+    EXCLUDE = "exclude"
+
+
+class Rule(BaseModel):
+    """单条匹配规则。
+
+    任一字段匹配即视为该 rule 命中（同一 rule 内 AND，多条 rule 之间 OR）。
+    所有字段可选，但空 rule 被拒绝。
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Optional[FilterMode] = None   # None = 继承顶层 mode
+    host: Optional[str] = None          # 精确匹配
+    host_glob: Optional[str] = None     # fnmatch，与 host 互斥
+    host_regex: Optional[str] = None    # 正则，与 host/host_glob 互斥
+    path: Optional[str] = None          # 前缀匹配（与现有 PathFilter 一致）
+    path_glob: Optional[str] = None
+    path_regex: Optional[str] = None
+    methods: Optional[list[str]] = None
+
+    @field_validator("methods")
+    @classmethod
+    def _upper_methods(cls, v):
+        return [m.upper() for m in v] if v else v
+
+    @model_validator(mode="after")
+    def _no_empty_rule(self):
+        if not any([self.host, self.host_glob, self.host_regex,
+                    self.path, self.path_glob, self.path_regex,
+                    self.methods]):
+            raise ValueError("rule 至少需要 1 个匹配字段")
+        return self
+
+    @model_validator(mode="after")
+    def _host_mutually_exclusive(self):
+        fields = [self.host, self.host_glob, self.host_regex]
+        if sum(f is not None for f in fields) > 1:
+            raise ValueError("host/host_glob/host_regex 只能选一个")
+        fields = [self.path, self.path_glob, self.path_regex]
+        if sum(f is not None for f in fields) > 1:
+            raise ValueError("path/path_glob/path_regex 只能选一个")
+        return self
+
+
+class Profile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    description: Optional[str] = None
+    rules: list[Rule] = Field(default_factory=list)
+
+
+class StrategyFile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: FilterMode = FilterMode.INCLUDE
+    default_profile: Optional[str] = None
+    includes: list[Path] = Field(default_factory=list)
+    profiles: dict[str, Profile]
+```
+
+### 3.2 编译产物
+
+```python
+@dataclass(frozen=True)
+class CompiledRule:
+    mode: FilterMode              # 顶层 mode 解析后
+    host: Optional[re.Pattern]
+    path_prefix: Optional[str]
+    path_re: Optional[re.Pattern]
+    methods: Optional[frozenset[str]]
+
+
+class CompiledMatcher:
+    """mitmdump 子进程内使用的匹配器。"""
+
+    def __init__(self, rules: list[CompiledRule]):
+        self.rules = rules
+
+    def match(self, event: dict) -> bool:
+        for rule in self.rules:
+            if self._match_one(rule, event):
+                return True
+        return False
+
+    def match_with_reason(self, event: dict) -> tuple[bool, Optional[str]]:
+        """调试用：返回是否命中 + 命中的 rule 描述。"""
+        ...
+
+    @staticmethod
+    def _match_one(rule: CompiledRule, event: dict) -> bool:
+        method = (event.get("method") or "").upper()
+        host = event.get("host") or ""
+        path = event.get("path") or ""
+
+        if rule.methods and method not in rule.methods:
+            return False
+        if rule.host and not rule.host.search(host):
+            return False
+        if rule.path_prefix and not (path == rule.path_prefix
+                                     or path.startswith(rule.path_prefix + "/")):
+            return False
+        if rule.path_re and not rule.path_re.search(path):
+            return False
+        return True
+```
+
+### 3.3 关键设计点
+
+1. **AND 内部，OR 之间**：同一 rule 的 host + path + method 都满足才命中；多条 rule 任一命中即通过
+2. **mode 在编译时已解析**：`CompiledRule.mode` 永远是具体值，不留 None
+3. **空 rule 显式拒绝**：`model_validator` 拒绝无字段的 rule
+4. **大小写归一**：method 在 `Rule` 校验时统一大写
+5. **互斥校验**：host 三种形式只能选一个；path 三种形式只能选一个
+
+### 3.4 匹配语义
+
+对于每个 rule：
+
+- `host` / `host_glob` / `host_regex` 三选一；缺省 = 不按 host 过滤
+- `path` / `path_glob` / `path_regex` 三选一；缺省 = 不按 path 过滤
+- `methods` 列表任一命中即通过；缺省 = 不按 method 过滤
+- 任一字段不通过 → 该 rule 不命中
+- rule.mode 决定本 rule 命中后是 include 还是 exclude 语义
+- 全局 mode 决定无 rule 命中时的默认语义
+
+---
+
+## 4. Loader 与文件发现
+
+### 4.1 公共 API
+
+```python
+# gimbal/capture/loader.py
+
+def build_matcher(
+    *,
+    filter_file: Optional[Path],
+    profile: Optional[str],
+    cli_csv: Optional[str],
+    cli_mode: FilterMode,
+    strict_files_only: bool = False,
+) -> CompiledMatcher:
+    """端到端入口：CLI 参数 → CompiledMatcher。"""
+```
+
+### 4.2 文件发现
+
+```python
+def _default_search_paths() -> tuple[Optional[Path], ...]:
+    env = os.environ.get("GIMBAL_FILTERS")
+    return (
+        Path.cwd() / ".gimbal" / "filters.yaml",
+        Path.cwd() / "filters.yaml",
+        Path.home() / ".gimbal" / "filters.yaml",
+        Path(env).expanduser() if env else None,
+    )
+
+
+def discover_filter_file(
+    explicit: Optional[Path],
+    search_paths: tuple[Optional[Path], ...],
+    strict: bool,
+) -> Optional[Path]:
+    """--filter-file 优先；否则按 search_paths 找第一个存在的文件。
+
+    strict=True 且未找到 → FilterFileNotFound。
+    """
+    if explicit is not None:
+        p = explicit.expanduser().resolve()
+        if not p.exists():
+            raise FilterFileNotFound(f"--filter-file 指定的文件不存在: {p}")
+        return p
+    for p in search_paths:
+        if p and p.exists():
+            return p
+    if strict:
+        raise FilterFileNotFound(
+            "未找到 filter 文件 (--strict-files-only 已启用)"
+        )
+    return None
+```
+
+### 4.3 include 解析
+
+```python
+def resolve_includes(
+    main_path: Path,
+    visited: frozenset[Path] = frozenset(),
+) -> StrategyFile:
+    """递归加载 main_path + 它的 includes。
+
+    - 已访问集合在函数边界检测，发现环 → IncludeCycleError
+    - include 路径以**主文件所在目录**为基准（不是 CWD）
+    - 跨文件 profile 不合并语义：后者覆盖前者，发出警告
+    - 顶层 mode / default_profile / includes 只用 main 文件的；
+      included 文件仅追加自己的 profiles
+    """
+    abs_main = main_path.resolve()
+    if abs_main in visited:
+        raise IncludeCycleError(f"include 循环: {abs_main}")
+
+    sf = _load_one_yaml(main_path)
+
+    for inc in sf.includes:
+        inc_abs = (main_path.parent / inc).resolve()
+        inc_sf = resolve_includes(inc_abs, visited | {abs_main})
+        for name, prof in inc_sf.profiles.items():
+            if name in sf.profiles:
+                typer.secho(
+                    f"[filter] 警告: profile {name!r} 被覆盖 "
+                    f"(来源: {inc.name})",
+                    fg=typer.colors.YELLOW,
+                )
+            sf.profiles[name] = prof
+    return sf
+```
+
+### 4.4 profile 选择
+
+```python
+def select_profile(sf: StrategyFile, name: Optional[str]) -> Profile:
+    chosen = name or sf.default_profile
+    if chosen is None:
+        if len(sf.profiles) == 1:
+            return next(iter(sf.profiles.values()))
+        raise ProfileNotFound(
+            f"文件含 {len(sf.profiles)} 个 profile，必须 --filter-profile 指定，"
+            f"或文件内设置 default_profile"
+        )
+    if chosen not in sf.profiles:
+        raise ProfileNotFound(
+            f"profile {chosen!r} 不存在，文件中只有: {list(sf.profiles)}"
+        )
+    return sf.profiles[chosen]
+```
+
+### 4.5 CLI 追加规则
+
+```python
+def append_cli_rules(
+    profile: Profile,
+    csv: Optional[str],
+    cli_mode: FilterMode,
+) -> None:
+    """把 --filter '/a,/b' 转成 Rule 列表，追加到 profile.rules 末尾。
+
+    每条 CSV 元素 → Rule(path=p, mode=cli_mode)。
+    空 csv → 不追加（保留纯文件行为）。
+    """
+    if not csv:
+        return
+    for p in csv.split(","):
+        p = p.strip()
+        if not p:
+            continue
+        profile.rules.append(Rule(path=p, mode=cli_mode))
+```
+
+### 4.6 编译
+
+```python
+def compile_matcher(sf: StrategyFile, profile: Profile) -> CompiledMatcher:
+    """把 Profile.rules 编译成 CompiledMatcher。
+
+    每条 Rule：
+      - 解析 mode（None → 继承 sf.mode）
+      - 编译 host_glob / host_regex / path_glob / path_regex 为 re.Pattern
+      - methods → frozenset
+    编译失败的规则 → RuleCompileError，提示字段名 + 原因 + rule 索引。
+    """
+    compiled = []
+    for idx, rule in enumerate(profile.rules):
+        try:
+            compiled.append(_compile_one(idx, rule, sf.mode))
+        except re.error as e:
+            raise RuleCompileError(
+                f"profile rule #{idx + 1} 正则编译失败: {e}\n"
+                f"  rule: {rule.model_dump_json(indent=2)}"
+            )
+    return CompiledMatcher(compiled)
+
+
+def _compile_one(idx: int, rule: Rule, default_mode: FilterMode) -> CompiledRule:
+    mode = rule.mode or default_mode
+    host_re = _compile_host(rule)
+    path_prefix, path_re = _compile_path(rule)
+    methods = frozenset(rule.methods) if rule.methods else None
+    return CompiledRule(
+        mode=mode, host=host_re, path_prefix=path_prefix,
+        path_re=path_re, methods=methods,
+    )
+
+
+def _compile_host(rule: Rule) -> Optional[re.Pattern]:
+    if rule.host:
+        return re.compile(re.escape(rule.host))
+    if rule.host_glob:
+        return re.compile(fnmatch.translate(rule.host_glob))
+    if rule.host_regex:
+        return re.compile(rule.host_regex)
+    return None
+
+
+def _compile_path(rule: Rule) -> tuple[Optional[str], Optional[re.Pattern]]:
+    if rule.path:
+        return rule.path, None
+    if rule.path_glob:
+        return None, re.compile(fnmatch.translate(rule.path_glob))
+    if rule.path_regex:
+        return None, re.compile(rule.path_regex)
+    return None, None
+```
+
+### 4.7 旧行为兜底
+
+```python
+def build_matcher(*, filter_file, profile, cli_csv, cli_mode,
+                  strict_files_only=False) -> CompiledMatcher:
+    """CLI 参数 → CompiledMatcher。
+
+    三条入口分支：
+      A. 显式文件存在 + profile.rules 非空 → 编译文件规则
+      B. 文件存在但 profile.rules 为空 且 无 CSV → EmptyRulesError（不录所有）
+      C. 找不到文件 且 无 CSV → 旧行为兜底：插入一条 "全匹配" sentinel 规则，
+         等价于 PathFilter([]).match() == True，保留 v0 "什么都不配就全录" 语义
+      D. 找不到文件 但有 CSV → 纯 CSV 路径
+    """
+    sf = _load_strategy_file_or_none(filter_file, strict_files_only)
+    if sf is None:
+        if not cli_csv:
+            # 兜底：全匹配（v0 PathFilter([]) 等价行为）
+            return CompiledMatcher([CompiledRule(
+                mode=FilterMode.INCLUDE,
+                host=None, path_prefix=None, path_re=None, methods=None,
+            )])
+        return CompiledMatcher([
+            _compile_csv_rule(p, cli_mode) for p in parse_csv(cli_csv)
+        ])
+    sf = resolve_includes(sf)
+    prof = select_profile(sf, profile)
+    append_cli_rules(prof, cli_csv, cli_mode)
+    if not prof.rules:
+        raise EmptyRulesError(
+            f"选中的 profile 无任何规则，请至少 1 条或加 --filter"
+        )
+    return compile_matcher(sf, prof)
+```
+
+### 4.8 异常体系
+
+```python
+class FilterConfigError(Exception):
+    """筛选配置错误，父进程捕到 → 退出码 5 + 红字。"""
+
+class FilterFileNotFound(FilterConfigError): ...
+class IncludeCycleError(FilterConfigError): ...
+class ProfileNotFound(FilterConfigError): ...
+class RuleCompileError(FilterConfigError): ...
+class EmptyRulesError(FilterConfigError): ...
+```
+
+---
+
+## 5. CLI 接口
+
+### 5.1 新增 typer 参数
+
+```python
+def start_cmd(
+    session: str = typer.Option(..., "--session", "-s"),
+    port: int = typer.Option(8080, "--port", "-p"),
+    filter: str = typer.Option("/api/", "--filter", "-f"),
+    home: Optional[Path] = typer.Option(None, "--home"),
+    mitmdump: str = typer.Option("mitmdump"),
+    # ── 新增 ──
+    filter_file: Optional[Path] = typer.Option(
+        None, "--filter-file",
+        help="YAML 筛选配置文件；未传则按 .gimbal/filters.yaml 等自动查找",
+    ),
+    filter_profile: Optional[str] = typer.Option(
+        None, "--filter-profile",
+        help="要使用的 profile 名；多 profile 时必填",
+    ),
+    filter_mode: FilterMode = typer.Option(
+        FilterMode.INCLUDE, "--filter-mode",
+        help="CLI --filter 追加规则的默认 mode",
+    ),
+    strict_files_only: bool = typer.Option(
+        False, "--strict-files-only",
+        help="关闭自动文件查找，只用 --filter-file",
+    ),
+) -> None:
+```
+
+### 5.2 优先级与互斥
+
+```
+--filter-file 显式         → 用该文件，跳过自动查找
+--strict-files-only        → 关闭自动查找，没传 file 就报 FilterFileNotFound
+--filter-profile X         → 必须存在于文件 profiles
+文件含 default_profile     → 未传 --filter-profile 时使用
+文件只 1 个 profile        → 自动选（无需 --filter-profile）
+--filter '/api/x,/api/y'   → 追加为 Rule，mode 由 --filter-mode 决定
+```
+
+### 5.3 旧命令兼容
+
+```bash
+# 旧用法，完全不变（CSV 默认 mode=include，无文件）
+gimbal capture start --session dev-1 --filter /api/    # ✓ 工作
+gimbal capture start --session dev-1 --filter ""       # ✓ 不过滤
+
+# 新用法
+gimbal capture start --session dev-1 \
+  --filter-file filters.yaml \
+  --filter-profile smoke
+
+gimbal capture start --session dev-1 \
+  --filter-file filters.yaml \
+  --filter-profile smoke \
+  --filter "/api/debug" \
+  --filter-mode include
+
+gimbal capture start --session dev-1 \
+  --strict-files-only \
+  --filter-file filters.yaml
+```
+
+### 5.4 addon 脚本渲染
+
+mitmdump 子进程需要**自己加载** matcher（不能传对象）。改造 `_render_addon_script`：
+
+```python
+def _render_addon_script(
+    home: Path,
+    session: str,
+    *,
+    filter_file: Optional[Path],
+    filter_profile: Optional[str],
+    cli_csv: str,
+    cli_mode: str,
+) -> str:
+    home_s = str(home).replace("\\", "\\\\")
+    filter_csv_s = cli_csv.replace("\\", "\\\\").replace('"', '\\"')
+    file_repr = (
+        f'r"{str(filter_file).replace(chr(92), chr(92)*2)}"'
+        if filter_file else "None"
+    )
+    profile_repr = f'"{filter_profile}"' if filter_profile else "None"
+
+    return f'''
+# Auto-generated by gimbal capture; do not edit.
+import sys
+from pathlib import Path
+
+sys.path.insert(0, r"{Path(__file__).resolve().parent.parent.parent.parent}")
+
+from gimbal.capture.loader import build_matcher
+from gimbal.capture.bus import FileBus
+from gimbal.capture.proxy import CaptureAddon
+
+home = Path(r"{home_s}")
+session = "{session}"
+cli_csv = "{filter_csv_s}"
+cli_mode = "{cli_mode}"
+
+matcher = build_matcher(
+    filter_file={file_repr},
+    profile={profile_repr},
+    cli_csv=cli_csv,
+    cli_mode=FilterMode(cli_mode),
+)
+
+bus = FileBus(home, session)
+addons = [CaptureAddon(bus, matcher)]
+'''
+```
+
+### 5.5 父进程提前校验
+
+```python
+# cli.py:start_cmd
+try:
+    matcher = build_matcher(
+        filter_file=filter_file,
+        profile=filter_profile,
+        cli_csv=filter,
+        cli_mode=filter_mode,
+        strict_files_only=strict_files_only,
+    )
+except FilterConfigError as e:
+    typer.secho(
+        f"[capture] 筛选配置错误: {e}",
+        fg=typer.colors.RED, err=True,
+    )
+    raise typer.Exit(5)
+
+typer.echo(f"[capture] filter rules: {len(matcher.rules)}")
+
+addon_script = _render_addon_script(
+    home, session,
+    filter_file=filter_file,
+    filter_profile=filter_profile,
+    cli_csv=filter,
+    cli_mode=filter_mode.value,
+)
+```
+
+**好处**：父进程先 build 一次能立刻发现 YAML 错、正则错、循环 include；mitmdump 子进程再 build 是冗余但保证隔离（重 IPC 风险）。
+
+### 5.6 proxy.py 改造
+
+```python
+# gimbal/capture/proxy.py
+class CaptureAddon:
+    def __init__(self, bus: FileBus, matcher: CompiledMatcher) -> None:
+        self.bus = bus
+        self.matcher = matcher
+        self.count = 0
+
+    def response(self, flow: http.HTTPFlow):
+        if flow.response is None:
+            return
+        path = flow.request.path.split("?")[0]
+        event = self._build_event_dict(flow, path)
+        if not self.matcher.match(event):
+            return
+        # ... 转 CaptureEvent + bus.write
+```
+
+**`PathFilter` 兼容层保留**：
+
+```python
+# filter.py 末尾保留
+class PathFilter:
+    """CSV-only 兼容层。给没传 --filter-file 的旧命令使用。
+
+    新代码应走 loader.build_matcher + CompiledMatcher。
+    """
+    # ... 现有代码不变
+```
+
+---
+
+## 6. 错误处理
+
+### 6.1 错误分类与退出码
+
+| 错误类型 | 触发条件 | 错误消息样例 | 退出码 |
+|---|---|---|---|
+| `FilterConfigError` | YAML 解析 / Pydantic 校验失败 | `filters.yaml: profile 'smoke' 缺少 rules` | 5 |
+| `IncludeCycleError` | include 自环或互环 | `include 循环: A → B → A` | 5 |
+| `RuleCompileError` | 正则编译失败 | `rule #3 path_regex 编译失败: missing )` | 5 |
+| `FilterFileNotFound` | `--filter-file` 不存在 | `--filter-file 指定的文件不存在: /path` | 5 |
+| `FilterFileNotFound` | `--strict-files-only` 且未找到 | `未找到 filter 文件 (--strict-files-only 已启用)` | 5 |
+| `ProfileNotFound` | 名字不在 profiles | `profile 'e2e' 不存在，文件中只有: [smoke, debug]` | 5 |
+| `EmptyRulesError` | 文件 profile.rules 为空且无 CSV | `选中的 profile 无任何规则，请至少 1 条或加 --filter` | 5 |
+| 旧行为无文件无 CSV | `--filter ""` 且未传 file | 插入 sentinel "全匹配" 规则，行为等价于 v0 `PathFilter([]).match()=True` → 全部记录 | 0 |
+
+### 6.2 边界 case
+
+| 编号 | 场景 | 行为 |
+|---|---|---|
+| 1 | host / host_glob / host_regex 同时存在 | FilterConfigError：只能选一个 |
+| 2 | path / path_glob / path_regex 同时存在 | FilterConfigError：只能选一个 |
+| 3 | 规则无任何匹配字段 | FilterConfigError：rule 至少需要 1 个匹配字段 |
+| 4 | `--filter "/api/order"` | path 前缀匹配，**不会**误匹配 `/api/orderlist` |
+| 5 | `methods: [get, Post]` | 自动归一为 `[GET, POST]` |
+| 6 | 多 profile 同名（include 后覆盖） | 后者覆盖前者 + 警告到 stderr |
+| 7 | include 路径解析 | 以主文件所在目录为基准（非 CWD） |
+| 8 | include 循环 | IncludeCycleError，提示环路径 |
+| 9 | 正则编译失败 | RuleCompileError，定位 rule 索引和字段 |
+| 10 | `default_profile` 指向不存在的 profile | ProfileNotFound |
+| 11 | 文件无 `profiles` 字段 | Pydantic 必填校验失败 |
+| 12 | mitmdump 子进程 import 失败 | 子进程非零退出，stderr 透传 |
+
+### 6.3 日志/可观测性
+
+启动时打印：
+
+```
+[capture] session=dev-1  port=8080  filter-file=/home/user/filters.yaml  profile=smoke
+[capture] rules: 5 (mode=include, includes resolved: 2 file(s))
+[capture] CLI overrides: 1 rule(s) appended (mode=include)
+```
+
+每条匹配命中可选地打印（`--verbose` 模式，未来可选）：
+
+```
+[capture] #1 GET api.example.com/api/order → matched by rule #2 (mode=include)
+```
+
+---
+
+## 7. 测试策略
+
+### 7.1 测试文件布局
+
+```
+tests/
+├── test_strategy_model.py        # Pydantic 模型校验（空 rule、互斥、method 大小写）
+├── test_strategy_compile.py      # glob/regex 编译、CompiledMatcher.match 语义
+├── test_loader_yaml.py           # YAML 解析、StrategyFile 校验
+├── test_loader_include.py        # include 递归、覆盖、循环检测、相对路径
+├── test_loader_profile.py        # profile 选择、default_profile、多 profile
+├── test_loader_cli_override.py   # --filter CSV 追加、--filter-mode
+├── test_filter_compat.py         # PathFilter 兼容（现有 CSV 行为不变）
+├── test_cli_integration.py       # typer CliRunner 端到端（start / 含错误配置）
+└── test_proxy_with_matcher.py    # CaptureAddon + CompiledMatcher（mitmproxy 模拟）
+```
+
+### 7.2 单元测试覆盖
+
+**`test_strategy_model.py`**
+
+```python
+def test_empty_rule_rejected():
+    with pytest.raises(ValidationError, match="至少需要 1 个匹配字段"):
+        Rule()
+
+def test_host_mutually_exclusive():
+    with pytest.raises(ValidationError, match="只能选一个"):
+        Rule(host="x.com", host_glob="*.com")
+
+def test_methods_uppercased():
+    r = Rule(methods=["get", "Post"])
+    assert r.methods == ["GET", "POST"]
+
+def test_extra_field_rejected():
+    with pytest.raises(ValidationError):
+        Rule(path="/a", foo="bar")
+```
+
+**`test_strategy_compile.py`**
+
+```python
+def test_path_prefix_no_false_match():
+    """锁住现有 PathFilter 行为：/api/order 不匹配 /api/orderlist"""
+    matcher = compile_matcher(_sf(), _profile_with(path="/api/order"))
+    assert matcher.match(_ev(path="/api/order"))
+    assert matcher.match(_ev(path="/api/order/123"))
+    assert not matcher.match(_ev(path="/api/orderlist"))
+
+def test_glob_double_star_recursive():
+    matcher = compile_matcher(_sf(), _profile_with(path_glob="/api/**"))
+    assert matcher.match(_ev(path="/api/order/123/sub"))
+    assert not matcher.match(_ev(path="/other/api"))
+
+def test_and_within_rule():
+    """rule 内 host + path + method 全部满足才命中"""
+    m = compile_matcher(_sf(mode=INCLUDE), _profile_with(
+        host="api.x.com", path="/api/order", methods=["POST"]
+    ))
+    assert m.match(_ev(host="api.x.com", path="/api/order", method="POST"))
+    assert not m.match(_ev(host="api.x.com", path="/api/order", method="GET"))
+    assert not m.match(_ev(host="other.com", path="/api/order", method="POST"))
+
+def test_or_between_rules():
+    m = compile_matcher(_sf(mode=INCLUDE), _profile_with([
+        {"path": "/a"}, {"path": "/b"},
+    ]))
+    assert m.match(_ev(path="/a/x"))
+    assert m.match(_ev(path="/b/x"))
+    assert not m.match(_ev(path="/c"))
+
+def test_exclude_mode():
+    m = compile_matcher(_sf(mode=EXCLUDE), _profile_with(path="/api/auth/login"))
+    assert not m.match(_ev(path="/api/auth/login"))
+    assert m.match(_ev(path="/api/order"))
+```
+
+**`test_loader_include.py`**
+
+```python
+def test_resolve_simple(tmp_path):
+    (tmp_path / "_common.yaml").write_text(
+        "mode: exclude\nprofiles:\n  _common:\n    rules:\n      - path: /auth\n"
+    )
+    (tmp_path / "filters.yaml").write_text("""
+mode: include
+includes: [./_common.yaml]
+profiles:
+  smoke:
+    rules: [{path: /api}]
+""")
+    sf = resolve_includes(tmp_path / "filters.yaml")
+    assert "_common" in sf.profiles
+    assert "smoke" in sf.profiles
+
+def test_include_relative_to_main_file(tmp_path):
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "common.yaml").write_text("profiles:\n  c:\n    rules: [{path: /a}]")
+    (tmp_path / "main.yaml").write_text(
+        "includes: [sub/common.yaml]\nprofiles:\n  m:\n    rules: [{path: /b}]"
+    )
+    sf = resolve_includes(tmp_path / "main.yaml")
+    assert {"c", "m"} <= set(sf.profiles)
+
+def test_include_cycle_detected(tmp_path):
+    (tmp_path / "a.yaml").write_text(
+        "includes: [b.yaml]\nprofiles: {p: {rules: [{path: /a}]}}"
+    )
+    (tmp_path / "b.yaml").write_text(
+        "includes: [a.yaml]\nprofiles: {p: {rules: [{path: /b}]}}"
+    )
+    with pytest.raises(IncludeCycleError):
+        resolve_includes(tmp_path / "a.yaml")
+
+def test_include_profile_override_warns(tmp_path, capsys):
+    (tmp_path / "_c.yaml").write_text(
+        "profiles:\n  p:\n    rules: [{path: /a}]"
+    )
+    (tmp_path / "main.yaml").write_text(
+        "includes: [_c.yaml]\nprofiles:\n  p:\n    rules: [{path: /b}]"
+    )
+    resolve_includes(tmp_path / "main.yaml")
+    out = capsys.readouterr().err
+    assert "profile 'p' 被覆盖" in out
+```
+
+**`test_loader_cli_override.py`**
+
+```python
+def test_csv_appended_as_rules():
+    sf = StrategyFile(mode=INCLUDE, profiles={
+        "p": Profile(rules=[Rule(path="/from_file")])
+    })
+    matcher = build_matcher(filter_file=None, profile=None,
+                            cli_csv="/from_cli1,/from_cli2",
+                            cli_mode=FilterMode.INCLUDE,
+                            _strategy_file=sf)
+    assert matcher.match(_ev(path="/from_file"))
+    assert matcher.match(_ev(path="/from_cli1"))
+    assert matcher.match(_ev(path="/from_cli2"))
+
+def test_cli_csv_uses_cli_mode():
+    sf = StrategyFile(mode=INCLUDE, profiles={"p": Profile(rules=[])})
+    matcher = build_matcher(filter_file=None, profile=None,
+                            cli_csv="/cli", cli_mode=FilterMode.EXCLUDE,
+                            _strategy_file=sf)
+    assert not matcher.match(_ev(path="/cli"))
+    assert matcher.match(_ev(path="/other"))
+```
+
+**`test_filter_compat.py`**（回归保护）
+
+```python
+def test_csv_default_behavior_unchanged():
+    """现有 --filter /api/ 行为必须保持。"""
+    matcher = build_matcher(filter_file=None, profile=None,
+                            cli_csv="/api/", cli_mode=FilterMode.INCLUDE)
+    assert matcher.match(_ev(path="/api/order"))
+    assert matcher.match(_ev(path="/api/order/123"))
+    assert not matcher.match(_ev(path="/api/orderlist"))
+    assert not matcher.match(_ev(path="/static/foo"))
+
+
+def test_empty_csv_no_file_records_all():
+    """v0 行为：--filter "" + 无文件 → 全记录（PathFilter([]) 兜底）。"""
+    matcher = build_matcher(filter_file=None, profile=None,
+                            cli_csv="", cli_mode=FilterMode.INCLUDE)
+    assert matcher.match(_ev(path="/anything"))
+    assert matcher.match(_ev(path="/api/order"))
+    assert matcher.match(_ev(path="/static/foo"))
+```
+
+### 7.3 集成测试
+
+**`test_cli_integration.py`** — typer CliRunner 测 CLI 端到端：
+
+```python
+def test_start_with_valid_filter_file(tmp_path, monkeypatch):
+    (tmp_path / "filters.yaml").write_text("""
+mode: include
+profiles:
+  smoke:
+    rules: [{path: /api}]
+""")
+    # 跳过 mitmdump，只验证脚本生成与 build_matcher 调用
+    result = runner.invoke(app, ["capture", "start", "--session", "x",
+                                  "--filter-file", str(tmp_path / "filters.yaml"),
+                                  "--filter-profile", "smoke",
+                                  "--mitmdump", "/bin/true"])
+    assert result.exit_code in (0, 1)  # mitmdump /bin/true 立即退出
+
+def test_invalid_yaml_exits_5(tmp_path):
+    (tmp_path / "bad.yaml").write_text("mode: include\n")  # 缺 profiles
+    result = runner.invoke(app, ["capture", "start", "--session", "x",
+                                  "--filter-file", str(tmp_path / "bad.yaml")])
+    assert result.exit_code == 5
+
+def test_missing_profile_exits_5(tmp_path):
+    (tmp_path / "f.yaml").write_text("""
+mode: include
+profiles:
+  smoke: {rules: [{path: /a}]}
+""")
+    result = runner.invoke(app, ["capture", "start", "--session", "x",
+                                  "--filter-file", str(tmp_path / "f.yaml"),
+                                  "--filter-profile", "nope"])
+    assert result.exit_code == 5
+    assert "profile 'nope' 不存在" in result.output
+```
+
+### 7.4 回归覆盖度目标
+
+- 现有 84 passed 全保留（`test_capture_smoke.py` 验证旧 CSV 仍工作）
+- 新增约 30 测试，集中在 edge cases
+- 覆盖率目标：`strategy.py` / `loader.py` ≥ 95%
+
+### 7.5 性能/安全注意
+
+- 正则编译在 `build_matcher` 一次完成，运行期只查编译结果
+- 不引入用户可控 regex 解析路径的字符串——`path_regex` 必须显式声明
+- mitmproxy 子进程是独立进程，addon 加载期任何 import 失败会立即终止
+
+---
+
+## 8. 配置示例
+
+### 8.1 单 profile 简单场景
+
+```yaml
+# filters.yaml
+mode: include
+default_profile: smoke
+
+profiles:
+  smoke:
+    description: 日常冒烟
+    rules:
+      - host: api.example.com
+        path: /api/order/*
+        methods: [POST, PUT]
+      - path_glob: /api/v*/order/**
+```
+
+### 8.2 include 复用场景
+
+```yaml
+# _common.yaml —— 公共黑名单，永不录
+mode: exclude
+profiles:
+  _common:
+    rules:
+      - path: /api/auth/login
+      - path_regex: "^/api/internal/.*"
+      - host_regex: "internal\\.example\\.com"
+```
+
+```yaml
+# filters.yaml —— 团队主配置
+mode: include
+default_profile: smoke
+includes:
+  - ./_common.yaml
+
+profiles:
+  smoke:
+    rules:
+      - host: api.example.com
+        path_glob: /api/**
+  e2e:
+    rules:
+      - host_glob: "*.example.com"
+        path_regex: "^/api/(order|user)/.*"
+        methods: [GET, POST]
+```
+
+### 8.3 CLI 追加临时调试
+
+```bash
+# 在 smoke 基础上临时再录 /api/debug
+gimbal capture start --session dev-1 \
+  --filter-file filters.yaml \
+  --filter-profile smoke \
+  --filter "/api/debug" \
+  --filter-mode include
+```
+
+---
+
+## 9. 实施里程碑
+
+| 阶段 | 内容 | 验收 |
+|---|---|---|
+| M1 | `strategy.py` 数据类 + Pydantic 校验 | 单元测试 95% 覆盖 |
+| M2 | `loader.py` YAML 解析 + include + profile + CLI 追加 | 单元测试通过 |
+| M3 | `cli.py` 新参数 + addon 脚本重写 + 父进程预校验 | 集成测试通过 |
+| M4 | `proxy.py` 改造 + 旧 `PathFilter` 兼容层 | E2E 流程跑通 |
+| M5 | 文档 + 回归测试 + 用户手册章节 | 84 passed 全保留 + 30 新测试 |
+
+---
+
+## 10. 风险与缓解
+
+| 风险 | 缓解 |
+|---|---|
+| mitmdump 子进程 build 失败导致 addon 加载失败 | 父进程提前 build 一次 + stderr 透传 |
+| YAML 配置错误导致用户启动卡住 | 退出码 5 + 红字提示，错误信息含 rule 索引和字段 |
+| 用户写巨大正则导致匹配慢 | 编译期 timeout；运行期只查预编译结果 |
+| include 循环导致启动卡死 | `visited` frozenset 边界检测 |
+| 多 profile 命名混淆 | `--filter-profile` 必填（多 profile 时），错误消息列出所有可选 |
+| 旧命令用户升级后行为变化 | `PathFilter` 兼容层保留；`test_filter_compat.py` 锁住旧行为 |
+
+---
+
+## 11. 文档更新
+
+- `README.md`：补充 `gimbal capture start --filter-file` 用法
+- `USER_MANUAL.md`：新增"第 X 章 筛选策略配置"小节
+- `gimbal-design/`：新增 `07-filter-strategy.md`（实施后归档）
+- `CHANGELOG.md`：v0.4 标记新功能

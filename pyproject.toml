@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gimbal"
+version = "0.1.0"
+description = "gimbal 测试用例配置平台 (capture + prism)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "gimbal team" }]
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.8",
+    "typer>=0.12",
+    "PyYAML>=6.0",
+    "watchdog>=4.0",       # prism 监听 capture 文件用
+    "sse-starlette>=2.1",  # /api/captures/stream 端点
+    "mitmproxy>=12.0",     # capture 代理
+    "httpx>=0.27",         # FastAPI TestClient 依赖
+    # 注意:v0 不引入 anthropic / httpx(AI 整体不做)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+# 引入 D:/M/ModelRegistry 作为可编辑依赖(Windows 开发环境)
+# CI 跳过此 extras,代码走 is_available() 降级
+model-registry = [
+    "model-registry-local @ file:///D:/M/ModelRegistry",
+]
+
+[project.scripts]
+gimbal = "gimbal.cli.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gimbal"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"gimbal/prism/static" = "gimbal/prism/static"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["prism/tests"]
+pythonpath = ["."]

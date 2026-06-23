@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>gimbal prism · Scenario 配置器</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/tabler-icons.min.js"></script>
+</head>
+<body>
+  <!-- 顶部固定栏(docx §2.1) -->
+  <header>
+    <div class="prism-badge" id="prism-badge" role="status" aria-live="polite">
+      <span class="prism-status-dot" id="prism-status-dot" aria-hidden="true"></span>
+      <span class="prism-status-text" id="prism-status-text">prism · captured</span>
+      <span class="captures-badge" id="captures-badge" title="内存中捕获数量">
+        <i class="ti ti-radar-2" aria-hidden="true"></i>
+        <span id="captures-count" data-empty="true">0</span>
+        <button class="captures-clear" id="clear-captures" type="button" aria-label="清空 captures" title="清空 captures">
+          <i class="ti ti-trash" aria-hidden="true"></i>
+          <span class="btn-label">清空</span>
+        </button>
+      </span>
+    </div>
+    <div class="scenario-id-box">
+      <span class="lbl">SCENARIO ID</span>
+      <input class="sid-input" id="header-sid-input" type="text" spellcheck="false" autocomplete="off" maxlength="64" />
+      <button class="sid-switch" id="header-sid-switch" type="button" title="切换到该 session (Enter)">
+        <i class="ti ti-arrow-right" aria-hidden="true"></i>
+        <span class="btn-label">切换</span>
+      </button>
+      <span class="sid-display" id="header-sid" hidden>sc_new</span>
+    </div>
+    <div class="spacer"></div>
+    <button class="topbar-btn" id="undo-btn" type="button" title="撤销 (Ctrl+Z)" aria-label="撤销">
+      <i class="ti ti-arrow-back-up" aria-hidden="true"></i>
+      <span class="btn-label">撤销</span>
+    </button>
+    <button class="topbar-btn" id="redo-btn" type="button" title="重做 (Ctrl+Y)" aria-label="重做">
+      <i class="ti ti-arrow-forward-up" aria-hidden="true"></i>
+      <span class="btn-label">重做</span>
+    </button>
+    <button class="topbar-btn" id="help-toggle" type="button" title="帮助 (?)" aria-label="帮助">
+      <i class="ti ti-help" aria-hidden="true"></i>
+      <span class="btn-label">帮助</span>
+    </button>
+    <button class="yaml-toggle" id="yaml-toggle" type="button" aria-label="打开 YAML 预览">
+      <i class="ti ti-eye" aria-hidden="true"></i> 只读 YAML
+    </button>
+  </header>
+
+  <!-- 标签栏(docx §2.2.1) -->
+  <nav class="tab-row" id="tab-row" role="tablist" aria-label="配置区切换">
+    <button class="tab active" id="tab-0" data-idx="0" role="tab" aria-selected="true" style="--tab-color:#c4b5fd;--tab-bg:#ede9fe">
+      <i class="ti ti-info-circle" aria-hidden="true"></i> 元信息
+    </button>
+    <button class="tab" id="tab-1" data-idx="1" role="tab" aria-selected="false" style="--tab-color:#86efac;--tab-bg:#dcfce7">
+      <i class="ti ti-settings-2" aria-hidden="true"></i> 配置
+    </button>
+    <button class="tab" id="tab-2" data-idx="2" role="tab" aria-selected="false" style="--tab-color:#fde68a;--tab-bg:#fef9c3">
+      <i class="ti ti-box" aria-hidden="true"></i> 资源
+    </button>
+    <button class="tab" id="tab-3" data-idx="3" role="tab" aria-selected="false" style="--tab-color:#93c5fd;--tab-bg:#dbeafe">
+      <i class="ti ti-list-check" aria-hidden="true"></i> Steps
+    </button>
+  </nav>
+
+  <!-- 卡片堆叠(docx §2.2.2) -->
+  <main class="card-stack" id="card-stack">
+
+    <!-- ============== Page 01 · 元信息 ============== -->
+    <section class="page active" data-idx="0" role="tabpanel" aria-labelledby="tab-0">
+      <header class="card-head">
+        <span class="eyebrow">01 · meta</span>
+        <span class="cicon" style="background:#ede9fe;color:#5b21b6"><i class="ti ti-info-circle"></i></span>
+        <h2>用例元信息</h2>
+      </header>
+      <p class="hint">Agent 已根据最近一次捕获推断,均可修改。</p>
+
+      <div class="field-row req">
+        <label>name</label>
+        <input class="fin" id="m-name" value="template" placeholder="用例名称(必填)" />
+      </div>
+      <div class="field-row">
+        <label>description</label>
+        <textarea class="fin fta autosize" id="m-desc" rows="2" placeholder="用例信息描述"></textarea>
+      </div>
+      <div class="field-row req">
+        <label>module</label>
+        <input class="fin" id="m-module" value="default" style="width:150px" />
+      </div>
+      <div class="field-row req">
+        <label>priority</label>
+        <select class="fin" id="m-priority" style="width:80px">
+          <option value="1">1 (最高)</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label>author / owner</label>
+        <div class="dual">
+          <input class="fin" id="m-author" value="prism" placeholder="author" />
+          <input class="fin" id="m-owner" value="prism" placeholder="owner" />
+        </div>
+      </div>
+
+      <div class="field-row">
+        <label>tags <small class="hint-inline">(拖动重排 · 回车/逗号添加 · 粘贴多标签)</small></label>
+        <div class="tags-wrap" id="tags-wrap">
+          <input class="tag-input" id="m-tags" placeholder="+ tag" />
+        </div>
+      </div>
+
+      <div class="field-row">
+        <label>version</label>
+        <input class="fin" id="m-version" value="1.0.0" style="width:90px" />
+      </div>
+
+      <div class="field-row">
+        <label>expire</label>
+        <label class="tog">
+          <input type="checkbox" id="m-expire" />
+          <span class="tog-slider"></span>
+          <span class="tog-text" id="m-expire-text" data-on="false">false</span>
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label>requirementRef</label>
+        <input class="fin" id="m-req" placeholder="REQ-123, REQ-456" />
+      </div>
+
+      <div class="field-row">
+        <label>scenarioId</label>
+        <input class="fin mono" id="m-sid" value="sc_new" readonly />
+      </div>
+    </section>
+
+    <!-- ============== Page 02 · 配置 ============== -->
+    <section class="page behind-1" data-idx="1" role="tabpanel" aria-labelledby="tab-1">
+      <header class="card-head">
+        <span class="eyebrow">02 · config</span>
+        <span class="cicon" style="background:#dcfce7;color:#166534"><i class="ti ti-settings-2"></i></span>
+        <h2>用例配置</h2>
+      </header>
+
+      <h3 class="sub-h">Services (alias → base URL) <small class="hint-inline">(拖动重排)</small></h3>
+      <div class="kv" id="services"></div>
+      <button class="add-btn" id="add-svc">+ service</button>
+
+      <h3 class="sub-h">Users (AuthSession)</h3>
+      <div id="users"></div>
+      <button class="add-btn" id="add-user">+ user</button>
+
+      <h3 class="sub-h">Time Policy</h3>
+      <div class="field-row">
+        <label>kind</label>
+        <select class="fin" id="tp-kind">
+          <option value="record">record</option>
+          <option value="realtime">realtime</option>
+          <option value="freeze">freeze</option>
+          <option value="timeout">timeout</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label>seconds</label>
+        <input class="fin" id="tp-seconds" type="number" value="60" style="width:64px" />
+        <span class="unit">秒</span>
+      </div>
+
+      <h3 class="sub-h">Retry</h3>
+      <div class="field-row">
+        <label>retry</label>
+        <label class="tog">
+          <input type="checkbox" id="tp-retry" />
+          <span class="tog-slider"></span>
+          <span class="tog-text" id="tp-retry-text" data-on="false">null</span>
+        </label>
+      </div>
+      <div class="field-row" id="retry-fields" hidden>
+        <label>max / backoff / on</label>
+        <div class="triple">
+          <input class="fin" id="tp-retry-max" type="number" value="3" placeholder="max" />
+          <input class="fin" id="tp-retry-backoff" type="number" value="20" placeholder="backoff" />
+          <input class="fin" id="tp-retry-on" placeholder="500,502" />
+        </div>
+      </div>
+
+      <h3 class="sub-h">Setup / Teardown</h3>
+      <div class="field-row">
+        <label>setup refs</label>
+        <input class="fin" id="tp-setup" placeholder="setup_ref_db, setup_ref_seed" />
+      </div>
+      <div class="field-row">
+        <label>teardown refs</label>
+        <input class="fin" id="tp-teardown" placeholder="teardown_ref_clean" />
+      </div>
+    </section>
+
+    <!-- ============== Page 03 · 资源 ============== -->
+    <section class="page behind-2" data-idx="2" role="tabpanel" aria-labelledby="tab-2">
+      <header class="card-head">
+        <span class="eyebrow">03 · resource</span>
+        <span class="cicon" style="background:#fef9c3;color:#854d0e"><i class="ti ti-box"></i></span>
+        <h2>用例资源</h2>
+      </header>
+
+      <p class="empty-hint" id="resource-empty-hint">
+        prism 暂未检测到预解析资源,请手动添加。
+      </p>
+
+      <div class="resource-grid">
+        <div class="resource-tile" data-rkind="db" role="button" tabindex="0">
+          <i class="ti ti-database" aria-hidden="true"></i><b>DB 接入</b>
+          <small>SQL fixture / DB seed</small>
+        </div>
+        <div class="resource-tile" data-rkind="mock" role="button" tabindex="0">
+          <i class="ti ti-api" aria-hidden="true"></i><b>Mock 接口</b>
+          <small>MockSpec ref</small>
+        </div>
+        <div class="resource-tile" data-rkind="file" role="button" tabindex="0">
+          <i class="ti ti-file-upload" aria-hidden="true"></i><b>文件上传</b>
+          <small>需要上传的资产</small>
+        </div>
+        <div class="resource-tile" data-rkind="variable" role="button" tabindex="0">
+          <i class="ti ti-variable" aria-hidden="true"></i><b>变量</b>
+          <small>注入到执行上下文</small>
+        </div>
+      </div>
+
+      <div id="resource-list"></div>
+    </section>
+
+    <!-- ============== Page 04 · Steps ============== -->
+    <section class="page behind-3" data-idx="3" role="tabpanel" aria-labelledby="tab-3">
+      <header class="card-head">
+        <span class="eyebrow">04 · steps</span>
+        <span class="cicon" style="background:#dbeafe;color:#1e3a8a"><i class="ti ti-list-check"></i></span>
+        <h2>用例步骤</h2>
+      </header>
+
+      <p class="hint">prism 暂未自动注入 Steps;手动添加或从 captures.ndjson 导入。</p>
+
+      <!-- v0.5.3: 实时 captures 列表 (WS 推送;点"导入"按钮才合并到 Steps) -->
+      <details class="captures-panel" id="captures-panel" open>
+        <summary>
+          <i class="ti ti-radar-2" aria-hidden="true"></i>
+          实时捕获
+          <span class="captures-count-inline" id="captures-count-inline">0</span>
+        </summary>
+        <div class="captures-toolbar">
+          <label class="tog tog-sm" title="勾选后, 新捕获自动作为 step 注入">
+            <input type="checkbox" id="auto-inject-toggle" />
+            <span class="tog-slider"></span>
+            <span class="tog-text" data-on="false">自动注入 step</span>
+          </label>
+        </div>
+        <div class="captures-table-wrap">
+          <table class="captures-table">
+            <thead>
+              <tr><th>方法</th><th>路径</th><th>状态</th><th>耗时</th></tr>
+            </thead>
+            <tbody id="captures-tbody"></tbody>
+          </table>
+          <div id="captures-empty" class="empty-state-sm" hidden>尚无捕获事件</div>
+        </div>
+      </details>
+
+      <div class="step-toolbar">
+        <button class="add-btn" id="expand-all" type="button" title="全部展开">
+          <i class="ti ti-arrows-maximize" aria-hidden="true"></i> 全部展开
+        </button>
+        <button class="add-btn" id="collapse-all" type="button" title="全部折叠">
+          <i class="ti ti-arrows-minimize" aria-hidden="true"></i> 全部折叠
+        </button>
+        <span class="grow"></span>
+        <button class="add-step-btn" id="add-step" type="button">
+          <i class="ti ti-plus" aria-hidden="true"></i> 新增 Step
+        </button>
+      </div>
+
+      <div id="step-list"></div>
+      <div id="step-empty" class="empty-state" hidden>尚无 Step — 导入 captures 或点击「+ 新增 Step」开始</div>
+
+      <div class="import-row">
+        <input class="fin" id="import-path" placeholder="captures.ndjson 路径 或拖入 .ndjson 文件" />
+        <button id="import-btn" type="button">导入</button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- YAML modal(docx §2.1) -->
+  <div class="modal" id="yaml-modal" hidden role="dialog" aria-modal="true" aria-labelledby="yaml-modal-title">
+    <div class="modal-box">
+      <header>
+        <span id="yaml-modal-title">YAML 预览</span>
+        <button id="yaml-close" type="button" aria-label="关闭">×</button>
+      </header>
+      <pre id="yaml-pre" aria-live="polite"></pre>
+      <footer>
+        <button id="yaml-json" type="button">本地 JSON 视图</button>
+        <span class="spacer"></span>
+        <button id="yaml-copy" type="button">复制</button>
+        <button id="yaml-export" type="button">导出 YAML</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Help modal -->
+  <div class="modal" id="help-modal" hidden role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+    <div class="modal-box help-box">
+      <header>
+        <span id="help-modal-title">prism 快捷键 &amp; 操作</span>
+        <button id="help-close" type="button" aria-label="关闭">×</button>
+      </header>
+      <div class="help-body">
+        <h3>快捷键</h3>
+        <table class="help-table">
+          <tr><th>Ctrl/⌘ + S</th><td>立即保存草稿</td></tr>
+          <tr><th>Ctrl/⌘ + Z</th><td>撤销</td></tr>
+          <tr><th>Ctrl/⌘ + Y / Shift+Z</th><td>重做</td></tr>
+          <tr><th>Ctrl/⌘ + 1..4</th><td>切换 Tab(元信息/配置/资源/Steps)</td></tr>
+          <tr><th>Esc</th><td>关闭弹窗 / 模态</td></tr>
+          <tr><th>?</th><td>打开本帮助</td></tr>
+        </table>
+        <h3>操作</h3>
+        <ul>
+          <li><b>Tags</b>:回车/逗号添加;Backspace 删;粘贴多标签(逗号/换行分隔);拖动重排。</li>
+          <li><b>Services / Resources / Steps</b>:可拖动重排。</li>
+          <li><b>删除</b>:Step / User / Resource / Service 删除前会弹确认。</li>
+          <li><b>Step 卡片</b>:
+            <ul>
+              <li>点 <code>cURL</code> 复制可粘贴到终端的 curl 命令。</li>
+              <li>点 <code>✎</code> 编辑已有策略(断言/提取/赋值)。</li>
+              <li>折叠/展开状态会随本次 session 保留。</li>
+            </ul>
+          </li>
+          <li><b>导入 captures</b>:可输入路径点导入,或直接把 <code>.ndjson</code> / <code>.json</code> 文件拖到输入框。</li>
+          <li><b>密码</b>:默认脱敏(<code>&lt;REDACTED&gt;</code>),需勾选"落实值"才会把真值写入 server;改密码会自动重置为脱敏。</li>
+          <li><b>YAML 导出</b>:后端在 <code>%TEMP%\prism-export</code> 写文件;URL 不可访问时检查 [server.py] 启动日志。</li>
+        </ul>
+      </div>
+      <footer>
+        <button type="button" onclick="$('help-modal').hidden=true">关闭</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Toast 容器 -->
+  <div class="toast-host" id="toast-host" aria-live="polite" aria-atomic="false"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
