@@ -33,6 +33,7 @@
 - 不重构 `importFromFile` / `_mergeCapturesIntoSteps` 等已有函数，保留其行为。
 - 不删除 `/api/captures/import-from-path` 后端端点（向后兼容），仅前端 `importFromPath` 不再被 UI 调用。
 - 不支持跨页拖拽（拖一个 tag 到另一页的 tag 区域）— 拖拽仅在当前页内有效，越界时由 `_syncStepPagination` 校正。
+- **不支持 JSON / YAML 用例文件的直接导入**（仅 NDJSON）。该需求为「后续」范围（数据驱动用例文件的导入），需另起 spec。当前导入入口（`#step-empty` 点击 / 拖拽）的 accept 属性与 JS 校验只放行 `.ndjson`。
 
 ---
 
