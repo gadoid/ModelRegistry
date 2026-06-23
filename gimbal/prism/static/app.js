@@ -1272,8 +1272,12 @@ async function importFromPath(path) {
   await _pullCaptures();
   return _mergeCapturesIntoSteps();
 }
-async function importFromFile(file) {
+async function _importNdjsonFile(file) {
   const text = await file.text();
+  if (!text || !text.trim()) {
+    toast('文件为空, 无可导入', 'info');
+    return { added: 0, total: 0, readLines: 0 };
+  }
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   let n = 0;
   for (const line of lines) {
@@ -1291,61 +1295,64 @@ async function importFromFile(file) {
   const r = await _mergeCapturesIntoSteps();
   return { ...r, readLines: n };
 }
-$('import-btn').addEventListener('click', async (e) => {
-  e.stopPropagation();
-  const path = $('import-path').value.trim();
-  if (!path) { toast('请输入 captures.ndjson 路径', 'error'); return; }
-  const btn = e.currentTarget;
-  btn.disabled = true;
-  const old = btn.textContent;
-  btn.textContent = '导入中…';
-  try {
-    const { added, total } = await importFromPath(path);
-    if (added > 0) toast(`导入完成:server 收到 ${total} 条,新增 ${added} 个 Step`, 'success');
-    else toast(`导入完成:server 收到 ${total} 条,无可新增(已存在或无效)`, 'info');
-  } catch (e) {
-    toast(`导入失败: ${e.message}`, 'error', 5000);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = old;
-  }
-});
-// 拖拽上传 (限定到 .import-row)
-['dragenter','dragover'].forEach((evt) => {
-  const row = document.querySelector('.import-row');
-  if (!row) return;
-  row.addEventListener(evt, (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    row.classList.add('prism-drop-target');
-  });
-});
-['dragleave','drop'].forEach((evt) => {
-  const row = document.querySelector('.import-row');
-  if (!row) return;
-  row.addEventListener(evt, (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    row.classList.remove('prism-drop-target');
-  });
-});
-const importInput = $('import-path');
-if (importInput) {
-  importInput.addEventListener('drop', async (e) => {
-    const file = e.dataTransfer?.files?.[0];
-    if (!file) return;
-    if (!/\.ndjson$|\.json$/i.test(file.name)) {
-      toast('请拖入 .ndjson / .json 文件', 'error');
-      return;
-    }
-    try {
-      const r = await importFromFile(file);
-      toast(`拖入完成:读取 ${r.readLines} 条,新增 ${r.added} 个 Step`, 'success');
-    } catch (e) {
-      toast(`拖入失败: ${e.message}`, 'error', 5000);
+const importFromFile = _importNdjsonFile;
+
+// ── Step v0.5.5: 空状态触发文件选择器 ──────────────────────
+const _stepEmpty = $('step-empty');
+if (_stepEmpty) {
+  const triggerFilePicker = () => $('ndjson-file-input').click();
+  _stepEmpty.addEventListener('click', triggerFilePicker);
+  _stepEmpty.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      triggerFilePicker();
     }
   });
 }
+
+const _ndjsonInput = $('ndjson-file-input');
+if (_ndjsonInput) {
+  _ndjsonInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';                          // 允许重选同一文件
+    if (!file) return;
+    if (!/\.ndjson$/i.test(file.name)) {
+      toast('请选择 .ndjson 文件', 'error');
+      return;
+    }
+    await _importNdjsonFile(file);
+  });
+}
+
+// ── Step v0.5.5: 拖拽 .ndjson 到空状态 / step 区域 ───────────
+function _handleNdjsonDrop(e) {
+  e.preventDefault();
+  const target = e.currentTarget;
+  target?.classList.remove('prism-drop-target');
+  const file = e.dataTransfer?.files?.[0];
+  if (!file) return;
+  if (!/\.ndjson$/i.test(file.name)) {
+    toast('请拖入 .ndjson 文件', 'error');
+    return;
+  }
+  _importNdjsonFile(file);
+}
+const _dropTargets = [$('step-empty'), document.querySelector('.step-main')].filter(Boolean);
+_dropTargets.forEach((el) => {
+  ['dragenter', 'dragover'].forEach((evt) => {
+    el.addEventListener(evt, (e) => {
+      e.preventDefault();
+      el.classList.add('prism-drop-target');
+    });
+  });
+  ['dragleave', 'drop'].forEach((evt) => {
+    el.addEventListener(evt, (e) => {
+      e.preventDefault();
+      el.classList.remove('prism-drop-target');
+    });
+  });
+  el.addEventListener('drop', _handleNdjsonDrop);
+});
 
 // ── WebSocket ────────────────────────────────────────────
 let ws;
