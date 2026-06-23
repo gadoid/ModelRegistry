@@ -180,6 +180,7 @@ renderSteps()          // 总入口, 顺序调用以上
   color: var(--accent);
 }
 .step-tag.dragging { opacity: .5; }
+.step-tag.drag-over { border-style: dashed; border-color: var(--accent); background: var(--accent-soft); }
 .step-tag .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .step-tag .del {
   background: transparent; border: 0; color: var(--red);
@@ -224,8 +225,9 @@ renderSteps()          // 总入口, 顺序调用以上
 ### 3.1 派生量（每次 render 重算）
 
 ```javascript
-const pageCount   = Math.max(1, Math.ceil(state.steps.length / PAGE_SIZE));
-const pageRanges  = []; // [{label: '1-10', start: 0, end: 10}, ...]
+const hasSteps   = state.steps.length > 0;
+const pageCount  = Math.max(1, Math.ceil(state.steps.length / PAGE_SIZE));
+const pageRanges = []; // [{label: '1-10', start: 0, end: 10}, ...]
 for (let p = 0; p < pageCount; p++) {
   const start = p * PAGE_SIZE;
   const end   = Math.min(start + PAGE_SIZE, state.steps.length);
@@ -233,11 +235,15 @@ for (let p = 0; p < pageCount; p++) {
   pageRanges.push({ label: `${from}-${to}`, start, end });
 }
 const currentRange = pageRanges[state.currentPage - 1] || pageRanges[0];
-const pageSteps    = state.steps.slice(currentRange.start, currentRange.end);
+const pageSteps    = hasSteps ? state.steps.slice(currentRange.start, currentRange.end) : [];
 const expandedStep = state.expandedStepSid
   ? state.steps.find(s => s.__sid === state.expandedStepSid)
   : null;
 ```
+
+**渲染门控**：
+- `hasSteps === false` 时：`renderStepSidebar` 渲染空容器（`hidden`），`renderStepTags` / `renderStepDetail` 同样 `hidden`。整个 `.step-layout` 由 `syncStepEmpty` 切换：length=0 时只显示 `#step-empty`，不显示侧栏 / tag / detail。
+- `hasSteps === true && pageCount === 1` 时：侧栏只显示一个「1-10」tab（仍可见，但占用空间小）。
 
 ### 3.2 操作矩阵
 
@@ -324,7 +330,7 @@ renderSteps():
 | 文件 IO 错误 (权限 / 不存在) | Toast: "读取失败: <err.message>" (error, 5s) | `await file.text()` 抛 → 捕获后 toast |
 | 拖入非 .ndjson 文件 | Toast: "请拖入 .ndjson 文件" (error) | drop handler 内 `if (!/\.ndjson$/i.test(file.name))` 早返 |
 | 拖入多个文件 | 只处理第一个 | `e.dataTransfer.files[0]`, 其余忽略 (不提示) |
-| 删除最后一个 step | `_syncStepPagination` 把 `expandedStepSid` 置 null, `currentPage` 保持 1 | 渲染 detail 区 `hidden=true` |
+| 删除最后一个 step | `_syncStepPagination` 把 `expandedStepSid` 置 null; 若 `state.steps.length === 0` 则 `currentPage` 重置 1; 若 `currentPage` 越界则截到 `pageCount` | 渲染 detail 区 `hidden=true`; `syncStepEmpty` 显示空状态 |
 | `currentPage` 越界 (拖拽 / 删除导致) | 跳到最后一页有效页 | `_syncStepPagination` 校正 |
 | tag 上的删除与 detail 内的删除同时点 | 同 `state.steps.splice(i, 1)`, 幂等 | detail 删 → renderSteps 会重建 tag; tag 删时 detail 同步消失 |
 | 用户在 `#step-empty` 上按 Enter/Space | 同 click → 触发文件选择器 | keydown 处理 `e.key === 'Enter' \|\| e.key === ' '` |
@@ -347,7 +353,7 @@ renderSteps():
 ### 5.1 前端 / E2E
 
 - **不引入新测试框架**。沿用现有 `pytest` + `requests` 模式。
-- **新增** `tests/test_step_pagination.py` — 启动 prism, 塞 25 个 step 进 state, 用 DOM 查询断言:
+- **新增** `tests/test_step_pagination.py` — 启动 prism, 通过 HTTP (`PUT /api/draft/{sid}`) 塞 25 个 step 进 state, 然后用 Playwright (`sync_playwright`) 加载 prism HTML, DOM 查询断言:
   - 侧栏有 `1-10`, `11-20`, `21-30` 三项
   - 当前页 `1-10` 高亮 (`.active` 类)
   - 切到 `11-20` 后 `#step-tags` 内 step 与 `state.steps[10:20]` 一一对应
