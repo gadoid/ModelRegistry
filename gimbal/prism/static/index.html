@@ -268,24 +268,27 @@
       </details>
 
       <div class="step-toolbar">
-        <button class="add-btn" id="expand-all" type="button" title="全部展开">
-          <i class="ti ti-arrows-maximize" aria-hidden="true"></i> 全部展开
-        </button>
-        <button class="add-btn" id="collapse-all" type="button" title="全部折叠">
-          <i class="ti ti-arrows-minimize" aria-hidden="true"></i> 全部折叠
-        </button>
         <span class="grow"></span>
         <button class="add-step-btn" id="add-step" type="button">
           <i class="ti ti-plus" aria-hidden="true"></i> 新增 Step
         </button>
       </div>
 
-      <div id="step-list"></div>
-      <div id="step-empty" class="empty-state" hidden>尚无 Step — 导入 captures 或点击「+ 新增 Step」开始</div>
+      <!-- v0.5.5: 隐藏的文件选择器, 由 #step-empty 点击 / 拖拽触发 -->
+      <input type="file" id="ndjson-file-input" accept=".ndjson,application/x-ndjson"
+             hidden aria-hidden="true" />
 
-      <div class="import-row">
-        <input class="fin" id="import-path" placeholder="captures.ndjson 路径 或拖入 .ndjson 文件" />
-        <button id="import-btn" type="button">导入</button>
+      <div id="step-list" class="step-layout">
+        <nav id="step-sidebar" class="step-sidebar" aria-label="Step 分页"></nav>
+        <div class="step-main">
+          <div id="step-tags" class="step-tags" role="list"></div>
+          <div id="step-detail" class="step-detail" hidden></div>
+        </div>
+      </div>
+      <div id="step-empty" class="empty-state clickable"
+           role="button" tabindex="0" aria-label="点击导入 .ndjson 文件">
+        尚无 Step — 点击导入 .ndjson
+        <small>(拖入 .ndjson 也可)</small>
       </div>
     </section>
 

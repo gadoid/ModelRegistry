@@ -89,9 +89,19 @@ def test_index_html_resource_tiles():
 
 
 def test_index_html_step_toolbar():
+    """Steps tab 工具栏 / 空状态 / 文件选择器 / 列表结构的 ID 存在。"""
     text = _read(INDEX_HTML)
-    for bid in ["add-step", "expand-all", "collapse-all", "import-btn"]:
-        assert f'id="{bid}"' in text, f"缺 step 按钮 #{bid}"
+    for bid in ["add-step", "ndjson-file-input", "step-sidebar",
+                "step-tags", "step-detail", "step-empty"]:
+        assert f'id="{bid}"' in text, f"缺 step 元素 #{bid}"
+    # 旧的 expand-all / collapse-all / import-row / import-btn / import-path 必须被删除
+    for old in ["expand-all", "collapse-all", "import-btn", "import-path"]:
+        assert f'id="{old}"' not in text, f"应已删除 #{old}"
+    # step-list 必须有 step-layout 类
+    assert 'id="step-list" class="step-layout"' in text, "step-list 缺少 step-layout 类"
+    # step-empty 必须可点击
+    assert 'id="step-empty" class="empty-state clickable"' in text, \
+        "step-empty 缺 clickable 类"
 
 
 # ─── app.js 端点契约 ──────────────────────────────────────────────────────
