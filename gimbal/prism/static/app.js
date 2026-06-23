@@ -1258,20 +1258,6 @@ async function _mergeCapturesIntoSteps() {
   renderCaptures();
   return { added, total: state.captures.length };
 }
-async function importFromPath(path) {
-  const r = await fetch('/api/captures/import-from-path', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ path }),
-  });
-  if (!r.ok) {
-    let msg = `HTTP ${r.status}`;
-    try { msg = (await r.text()) || msg; } catch (_) {}
-    throw new Error(msg);
-  }
-  state.capturesLocallyCleared = false;
-  await _pullCaptures();
-  return _mergeCapturesIntoSteps();
-}
 async function _importNdjsonFile(file) {
   const text = await file.text();
   if (!text || !text.trim()) {
@@ -1295,7 +1281,6 @@ async function _importNdjsonFile(file) {
   const r = await _mergeCapturesIntoSteps();
   return { ...r, readLines: n };
 }
-const importFromFile = _importNdjsonFile;
 
 // ── Step v0.5.5: 空状态触发文件选择器 ──────────────────────
 const _stepEmpty = $('step-empty');

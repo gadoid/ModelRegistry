@@ -56,8 +56,10 @@ def test_empty_file_early_return():
         "应检查 text.trim() 为空"
 
 
-def test_import_from_file_alias_kept():
-    """向后兼容: importFromFile 别名保留。"""
+def test_import_from_file_alias_removed():
+    """v0.5.5: importFromFile 别名已删除 (YAGNI, 无调用方)。"""
     text = _read()
-    assert "const importFromFile = _importNdjsonFile" in text, \
-        "应保留 importFromFile 别名以防外部调用"
+    assert "const importFromFile = _importNdjsonFile" not in text, \
+        "spec §0 YAGNI: 应已删除 importFromFile 别名"
+    assert "async function importFromPath" not in text, \
+        "spec §0 YAGNI: 应已删除 importFromPath 函数"

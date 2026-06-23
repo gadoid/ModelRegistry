@@ -129,7 +129,9 @@ def test_app_js_calls_capture_endpoints():
     text = _read(APP_JS)
     assert "/api/captures" in text
     assert "/api/captures/inject" in text
-    assert "/api/captures/import-from-path" in text
+    # v0.5.5: /api/captures/import-from-path 前端调用方已删除 (spec §0 YAGNI).
+    # 后端端点保留向后兼容, 仅 UI 不再调用。
+    assert "/api/captures/import-from-path" not in text
     # DELETE method
     assert "method: 'DELETE'" in text or '"DELETE"' in text
 
