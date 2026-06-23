@@ -22,8 +22,10 @@ const state = {
   steps: [],                                           // [{id, capture, key_hint, ...}]
   captures: [],                                        // 来自 WS
   activeTab: 0,
-  expandedSteps: new Set(),                            // 已手动展开的 step id
-  collapsedSteps: new Set(),                           // 已手动折叠的 step id
+  expandedSteps: new Set(),                            // v0.5.5: 保留供 undo/redo 兼容, 新逻辑不写
+  collapsedSteps: new Set(),                           // v0.5.5: 保留供 undo/redo 兼容, 新逻辑不写
+  currentPage: 1,                                      // v0.5.5: 1-based 页码, 渲染派生
+  expandedStepSid: null,                               // v0.5.5: 当前展开的 step.__sid, 单展开手风琴
   undoStack: [],
   redoStack: [],
   dirty: false,                                        // 本地有未提交变更
@@ -33,6 +35,7 @@ const state = {
   showJsonView: false,                                 // YAML 模态本地 JSON 视图
   validation: { m_sid: true, m_name: true, m_req: true, retry_on: true }, // true=valid
 };
+const PAGE_SIZE = 10;                                  // v0.5.5: 模块级常量, 硬编码
 
 // ── 工具 ──────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -1042,6 +1045,29 @@ function openStrategyEditor(item, onSave, isNew = false) {
   modal.querySelector('.se-cancel').addEventListener('click', close);
   modal.querySelector('.se-ok').addEventListener('click', save);
   modal.querySelector('[data-se="name"], [data-se="expression"], [data-se="source"]')?.focus();
+}
+
+// ── Step 分页原语 (v0.5.5) ────────────────────────────────
+function _computePageRanges() {
+  const ranges = [];
+  for (let p = 0; p * PAGE_SIZE < state.steps.length; p++) {
+    const start = p * PAGE_SIZE;
+    const end = Math.min(start + PAGE_SIZE, state.steps.length);
+    const from = start + 1;
+    const to = end;
+    ranges.push({ label: `${from}-${to}`, start, end });
+  }
+  return ranges;
+}
+
+function _syncStepPagination() {
+  const pageCount = Math.max(1, Math.ceil(state.steps.length / PAGE_SIZE));
+  if (state.currentPage > pageCount) state.currentPage = pageCount;
+  if (state.currentPage < 1) state.currentPage = 1;
+  if (state.expandedStepSid &&
+      !state.steps.some(s => s.__sid === state.expandedStepSid)) {
+    state.expandedStepSid = null;
+  }
 }
 
 // ── Capture: 拉取 + 翻译 + Drop ──────────────────────────
