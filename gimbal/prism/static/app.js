@@ -1772,8 +1772,13 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 
 // v0.5.5: tab 事件绑定提前到 module 顶层,确保 init() 即使 throw 也能切 tab
-$$('.tab').forEach((t) => {
-  t.addEventListener('click', (e) => { e.stopPropagation(); switchTo(+t.dataset.idx); });
+// 使用事件委托(document 上),即使 tab 按钮被 recreate 也能 catch
+document.addEventListener('click', (e) => {
+  const tabBtn = e.target && e.target.closest && e.target.closest('.tab');
+  if (tabBtn && tabBtn.dataset && tabBtn.dataset.idx != null) {
+    e.stopPropagation();
+    try { switchTo(+tabBtn.dataset.idx); } catch (err) { console.error('switchTo error', err); }
+  }
 });
 
 (async function init() {
