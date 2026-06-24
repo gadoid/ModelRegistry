@@ -488,6 +488,23 @@ if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# v0.5.5: dev 期 Cache-Control 修复 — 防止浏览器启发式缓存过期 app.js / style.css
+# ────────────────────────────────────────────────────────────────────────────
+# FastAPI StaticFiles 默认不发 cache-control 头, 浏览器按启发式规则 (now - last_modified) * 10%
+# 缓存 dev server 上的静态文件。改完 app.js 后用户刷新仍看到旧版, 点 新增 step 无响应等。
+# 中间件强制加 no-cache, 让浏览器每次走 ETag 协商拿最新内容。
+@app.middleware("http")
+async def _no_cache_static_and_index(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/static/") or path in ("/", "/configure"):
+        # no-cache 而非 no-store: 浏览器可本地缓存, 但每次 revalidate
+        if "cache-control" not in response.headers:
+            response.headers["cache-control"] = "no-cache"
+    return response
+
+
 @app.get("/")
 def index() -> HTMLResponse:
     idx = STATIC_DIR / "index.html"
