@@ -1755,6 +1755,27 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 // ── 启动 ────────────────────────────────────────────────
+// v0.5.5: 全局错误捕获,init 任何 throw 都会在页面顶部显示红条
+window.addEventListener('error', (e) => {
+  if (!e || !e.error) return;
+  const banner = document.createElement('div');
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#dc2626;color:#fff;padding:8px 12px;font:12px/1.4 monospace;z-index:99999;white-space:pre-wrap;';
+  banner.textContent = `[v0.5.5 JS ERROR] ${e.error.message || e.message} @ ${e.filename || '?'}:${e.lineno || '?'}`;
+  document.body && document.body.appendChild(banner);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (!e || !e.reason) return;
+  const banner = document.createElement('div');
+  banner.style.cssText = 'position:fixed;top:32px;left:0;right:0;background:#dc2626;color:#fff;padding:8px 12px;font:12px/1.4 monospace;z-index:99999;white-space:pre-wrap;';
+  banner.textContent = `[v0.5.5 PROMISE REJECT] ${e.reason && e.reason.message ? e.reason.message : e.reason}`;
+  document.body && document.body.appendChild(banner);
+});
+
+// v0.5.5: tab 事件绑定提前到 module 顶层,确保 init() 即使 throw 也能切 tab
+$$('.tab').forEach((t) => {
+  t.addEventListener('click', (e) => { e.stopPropagation(); switchTo(+t.dataset.idx); });
+});
+
 (async function init() {
   detectSession();
   bindMeta();
