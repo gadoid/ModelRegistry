@@ -286,7 +286,9 @@
         </div>
       </div>
       <div id="step-empty" class="empty-state clickable"
-           role="button" tabindex="0" aria-label="点击导入 .ndjson 文件">
+           role="button" tabindex="0" aria-label="点击导入 .ndjson 文件"
+           onclick="var i=document.getElementById('ndjson-file-input');if(i)i.click();"
+           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();var i=document.getElementById('ndjson-file-input');if(i)i.click();}">
         尚无 Step — 点击导入 .ndjson
         <small>(拖入 .ndjson 也可)</small>
       </div>
