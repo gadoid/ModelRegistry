@@ -1771,16 +1771,6 @@ window.addEventListener('unhandledrejection', (e) => {
   document.body && document.body.appendChild(banner);
 });
 
-// v0.5.5: tab 事件绑定提前到 module 顶层,确保 init() 即使 throw 也能切 tab
-// 使用事件委托(document 上),即使 tab 按钮被 recreate 也能 catch
-document.addEventListener('click', (e) => {
-  const tabBtn = e.target && e.target.closest && e.target.closest('.tab');
-  if (tabBtn && tabBtn.dataset && tabBtn.dataset.idx != null) {
-    e.stopPropagation();
-    try { switchTo(+tabBtn.dataset.idx); } catch (err) { console.error('switchTo error', err); }
-  }
-});
-
 (async function init() {
   detectSession();
   bindMeta();
@@ -1824,10 +1814,7 @@ document.addEventListener('click', (e) => {
       }
     });
   }
-  // tab 事件
-  $$('.tab').forEach((t) => {
-    t.addEventListener('click', (e) => { e.stopPropagation(); switchTo(+t.dataset.idx); });
-  });
+  // tab 事件 — tab 按钮用 HTML 内联 onclick (见 index.html),这里只绑 page click 委托
   $$('.page').forEach((p) => {
     p.addEventListener('click', (e) => {
       if (e.target.closest('input,select,textarea,button,.tag-pill,.tags-wrap,.user-block,.resource-tile,.step-card,.strategy-item'))
