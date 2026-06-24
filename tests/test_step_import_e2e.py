@@ -50,11 +50,15 @@ def test_captures_inject_and_list(client):
 
 
 def test_app_js_import_from_file_uses_inject_endpoint():
-    """app.js 内的 _importNdjsonFile 必须 POST /api/captures/inject。"""
+    """app.js 内的 _importNdjsonFile 必须 POST /api/captures/inject (带 sid query)。"""
     app_js = Path("D:/M/ModelRegistry/gimbal/prism/static/app.js")
     text = app_js.read_text(encoding="utf-8")
-    assert "await fetch('/api/captures/inject'" in text, \
+    # 端点 URL 必须包含 sid query (server 端 Query(...) 是必填)
+    assert "/api/captures/inject" in text, \
         "_importNdjsonFile 必须调 /api/captures/inject"
+    assert "sid=" in text, "POST URL 必须带 sid query 参数 (server 端要求)"
+    assert "encodeURIComponent(state.sessionId" in text, \
+        "应使用 state.sessionId 编码为 sid"
     assert "JSON.parse(line)" in text, "应逐行 JSON 解析"
     # 校验后缀
     assert "/\\.ndjson$/i.test(file.name)" in text, "应做 .ndjson 后缀校验"

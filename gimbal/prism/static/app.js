@@ -1264,14 +1264,19 @@ async function _importNdjsonFile(file) {
     return { added: 0, total: 0, readLines: 0 };
   }
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const injectSid = encodeURIComponent(state.sessionId || 'default');
   let n = 0;
   for (const line of lines) {
     try {
       const ev = JSON.parse(line);
-      await fetch('/api/captures/inject', {
+      const r = await fetch(`/api/captures/inject?sid=${injectSid}`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(ev),
       });
+      if (!r.ok) {
+        console.warn(`inject failed: ${r.status} ${r.statusText}`, ev);
+        continue;
+      }
       n += 1;
     } catch (_) { /* skip bad line */ }
   }
