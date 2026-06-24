@@ -51,16 +51,16 @@
 
   <!-- 标签栏(docx §2.2.1) -->
   <nav class="tab-row" id="tab-row" role="tablist" aria-label="配置区切换">
-    <button class="tab active" id="tab-0" data-idx="0" role="tab" aria-selected="true" style="--tab-color:#c4b5fd;--tab-bg:#ede9fe">
+    <button class="tab active" id="tab-0" data-idx="0" role="tab" aria-selected="true" style="--tab-color:#c4b5fd;--tab-bg:#ede9fe" onclick="switchTo(0)">
       <i class="ti ti-info-circle" aria-hidden="true"></i> 元信息
     </button>
-    <button class="tab" id="tab-1" data-idx="1" role="tab" aria-selected="false" style="--tab-color:#86efac;--tab-bg:#dcfce7">
+    <button class="tab" id="tab-1" data-idx="1" role="tab" aria-selected="false" style="--tab-color:#86efac;--tab-bg:#dcfce7" onclick="switchTo(1)">
       <i class="ti ti-settings-2" aria-hidden="true"></i> 配置
     </button>
-    <button class="tab" id="tab-2" data-idx="2" role="tab" aria-selected="false" style="--tab-color:#fde68a;--tab-bg:#fef9c3">
+    <button class="tab" id="tab-2" data-idx="2" role="tab" aria-selected="false" style="--tab-color:#fde68a;--tab-bg:#fef9c3" onclick="switchTo(2)">
       <i class="ti ti-box" aria-hidden="true"></i> 资源
     </button>
-    <button class="tab" id="tab-3" data-idx="3" role="tab" aria-selected="false" style="--tab-color:#93c5fd;--tab-bg:#dbeafe">
+    <button class="tab" id="tab-3" data-idx="3" role="tab" aria-selected="false" style="--tab-color:#93c5fd;--tab-bg:#dbeafe" onclick="switchTo(3)">
       <i class="ti ti-list-check" aria-hidden="true"></i> Steps
     </button>
   </nav>
