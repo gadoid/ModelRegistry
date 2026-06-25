@@ -1471,16 +1471,28 @@ function renderCaptures() {
   tbody.innerHTML = rows;
 }
 $('clear-captures').addEventListener('click', async () => {
-  if (!state.captures.length) return;
-  const ok = await confirmModal('清空 captures', '清空内存中的所有捕获事件(steps 不会被删除),确认?', { ok: '清空' });
+  // 早返守卫: captures 和 steps 都空时无需弹确认
+  if (!state.captures.length && !state.steps.length) return;
+  const ok = await confirmModal(
+    '清空本 session',
+    '清空内存中的所有捕获事件和已加载的 step, 并清空 server 端 draft,确认?',
+    { ok: '清空' },
+  );
   if (!ok) return;
   const sid = encodeURIComponent(state.sessionId || 'default');
   await fetch(`/api/captures?sid=${sid}`, { method: 'DELETE' });
+  // 清 captures (原有行为)
   state.captures = [];
   state.capturesLocallyCleared = true;
+  // 清 steps (SSOT) — 修 Bug: "清空 未能清空 加载的step内容"
+  state.steps = [];
+  state.expandedStepSid = null;
+  pushHistory();
   updateCapturesBadge();
   renderCaptures();
-  toast('captures 已清空', 'info');
+  renderSteps();
+  scheduleSave();
+  toast('captures 和 steps 已清空', 'info');
 });
 
 // ── Draft 持久化 ─────────────────────────────────────────

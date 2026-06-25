@@ -205,6 +205,14 @@ async def ws_captures(websocket: WebSocket, sid: str = Query("default")) -> None
             await websocket.send_json({"type": "capture", "data": ev})
     except WebSocketDisconnect:
         pass
+    except asyncio.CancelledError:
+        # uvicorn 二次 Ctrl+C (force quit) 时会把 KeyboardInterrupt 包装成
+        # CancelledError 派到 await 点; Python 3.8+ 起 CancelledError 是
+        # BaseException 而非 Exception, 上面裸 `except Exception` 抓不到,
+        # 必须在 BaseException 这一层显式接, 走 finally 清理 (handle.stop()).
+        # 静默退出而非 raise: 避免 uvicorn "Exception in ASGI application"
+        # 把 CancelledError 当异常刷出来 (见 routes.py:204 await queue.get())。
+        pass
     except Exception:  # noqa: BLE001
         pass
     finally:
