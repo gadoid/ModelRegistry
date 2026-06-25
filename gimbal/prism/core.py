@@ -58,7 +58,8 @@ def load_config(
 
     If path is None, returns a default draft populated only with steps from events.
     Field names in YAML use snake_case (time_policy, retry); translated to
-    camelCase (timePolicyKind, retryMaxAttempts) on the draft.
+    snake_case Draft fields (timePolicyKind projection happens later in
+    builder.build_scenario()).
     """
     if path is None:
         sid = _scenario_id_from_events(events)
@@ -67,7 +68,11 @@ def load_config(
             name=sid,
             steps=[StepDraft(capture=e) for e in events],
         )
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"config YAML must be a mapping, got {type(raw).__name__}: {path}"
+        )
     users: dict[str, AuthDraft] = {}
     for k, v in (raw.get("users") or {}).items():
         users[k] = AuthDraft(
