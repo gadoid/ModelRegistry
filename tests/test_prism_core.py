@@ -7,6 +7,7 @@ import pytest
 
 from gimbal.prism import core
 from gimbal.prism.builder import ScenarioDraft
+from gimbal.schema import Scenario
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -55,3 +56,23 @@ def test_load_config_full_yaml():
     assert draft.name == "Sample scenario"
     assert "admin" in draft.users
     assert draft.services == {"api.example.com": "auth-api"}
+
+
+def test_render_minimal_produces_valid_scenario():
+    events = [{"host": "api.example.com", "method": "GET", "path": "/x",
+               "headers": {}, "body": "", "response": {"status": 200}}]
+    draft = core.load_config(None, events)
+    result = core.render(draft)
+    assert isinstance(result, dict)
+    # 必须能被 Scenario 验证
+    Scenario.model_validate(result)
+    assert result["scenarioId"].startswith("sc_")
+
+
+def test_render_full_yaml():
+    events = [{"host": "api.example.com", "method": "GET", "path": "/x",
+               "headers": {}, "body": "", "response": {"status": 200}}]
+    draft = core.load_config(FIXTURES / "sample_config.yaml", events)
+    result = core.render(draft)
+    assert result["scenarioId"] == "sc_sample"
+    assert "admin" in result["config"]["users"]

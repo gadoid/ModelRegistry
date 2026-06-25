@@ -7,6 +7,7 @@ canary that detects drift.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,30 @@ from gimbal.prism.builder import (
     ResourceDraft,
     ScenarioDraft,
     StepDraft,
+    build_scenario,
 )
+from gimbal.schema import Scenario
+
+
+@dataclass
+class ConvertResult:
+    scenario: dict[str, Any]
+    output_path: Path | None
+    yaml_text: str
+    warnings: list[str] = field(default_factory=list)
+    event_count: int = 0
+    step_count: int = 0
+
+
+def render(draft: ScenarioDraft) -> dict[str, Any]:
+    """Render ScenarioDraft to a validated scenario dict.
+
+    Calls builder.build_scenario() and validates against Scenario schema.
+    Raises pydantic.ValidationError on invalid scenarios.
+    """
+    scenario = build_scenario(draft)
+    Scenario.model_validate(scenario)
+    return scenario
 
 
 def parse_ndjson(path: Path) -> list[dict[str, Any]]:
