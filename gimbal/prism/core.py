@@ -6,7 +6,6 @@ canary that detects drift.
 """
 from __future__ import annotations
 
-import json
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,6 +13,7 @@ from typing import Any
 
 import yaml
 
+from gimbal.io_utils import iter_ndjson_lines
 from gimbal.prism.builder import (
     AuthDraft,
     ResourceDraft,
@@ -62,17 +62,7 @@ def parse_ndjson(path: Path) -> list[dict[str, Any]]:
         ValueError: if file is empty (no events).
         json.JSONDecodeError: propagated from json.loads for malformed lines.
     """
-    if not path.exists():
-        raise FileNotFoundError(f"ndjson not found: {path}")
-    events: list[dict[str, Any]] = []
-    with path.open(encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                events.append(json.loads(line))
-    if not events:
-        raise ValueError(f"ndjson has no events: {path}")
-    return events
+    return list(iter_ndjson_lines(path))
 
 
 def _scenario_id_from_events(events: list[dict[str, Any]]) -> str:

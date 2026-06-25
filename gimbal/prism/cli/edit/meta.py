@@ -8,7 +8,7 @@ from typing import Optional
 import typer
 
 from gimbal.prism import core
-from gimbal.prism.cli._shared import load_yaml, save_yaml, print_error
+from gimbal.prism.cli._shared import print_error
 
 meta_app = typer.Typer(help="scenario meta 编辑")
 
@@ -21,7 +21,7 @@ def meta_get(
     """读 meta 字段。"""
     if not scenario.exists():
         print_error(f"scenario not found: {scenario}", 2)
-    sc = load_yaml(scenario)
+    sc = core.load_scenario(scenario)
     meta = core.get_meta(sc)
     if field:
         if field not in meta:
@@ -51,10 +51,10 @@ def meta_set(
         print_error("at least one --field required", 1)
     if not scenario.exists():
         print_error(f"scenario not found: {scenario}", 2)
-    sc = load_yaml(scenario)
+    sc = core.load_scenario(scenario)
     sc2 = core.set_meta(sc, **fields)
     if dry_run:
         typer.echo(json.dumps(sc2["meta"], ensure_ascii=False, indent=2, default=str))
     else:
-        save_yaml(sc2, scenario)
+        core.save_scenario(sc2, scenario)
         typer.echo(f"[prism meta set] updated: {list(fields.keys())}", err=True)

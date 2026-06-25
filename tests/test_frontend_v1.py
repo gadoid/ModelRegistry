@@ -187,18 +187,32 @@ def test_style_css_responsive():
 # ─── 端到端集成 (lifespan + WS) ─────────────────────────────────────────
 
 
+def _all_route_paths(app) -> set[str]:
+    """Flatten app.routes including APIRouter mounts (handles _IncludedRouter)."""
+    paths: set[str] = set()
+    for r in app.routes:
+        if hasattr(r, "path") and r.path:
+            paths.add(r.path)
+        # APIRouter-mounted subapps: unwrap _IncludedRouter.original_router
+        original = getattr(r, "original_router", None)
+        if original is not None and hasattr(original, "routes"):
+            for sub in original.routes:
+                if hasattr(sub, "path") and sub.path:
+                    paths.add(sub.path)
+    return paths
+
+
 def test_websocket_endpoint_exists():
     """WebSocket /ws/captures 已注册到 FastAPI app。"""
     from gimbal.prism.server import app
-    ws_routes = [r for r in app.routes if "ws" in r.path.lower()]
-    assert any(r.path == "/ws/captures" for r in ws_routes), \
-        f"缺 /ws/captures, 现有 ws 路由: {[r.path for r in ws_routes]}"
+    paths = _all_route_paths(app)
+    assert "/ws/captures" in paths, f"缺 /ws/captures, 现有路由: {sorted(paths)}"
 
 
 def test_rest_endpoints_still_present():
     """REST 6 端点全部保留。"""
     from gimbal.prism.server import app
-    paths = {r.path for r in app.routes if hasattr(r, "path")}
+    paths = _all_route_paths(app)
     for path in [
         "/api/health",
         "/api/captures",

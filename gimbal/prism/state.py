@@ -1,6 +1,10 @@
 """gimbal.prism.state — Session / SessionStore / CaptureReader / CaptureWatcher。
 
 v0 用法: 走 FastAPI `lifespan` + `app.state` 集中管理,**禁止**模块级 mutable 单例。
+
+Also houses the DraftIn / UserIn wire Pydantic models. These are draft
+state shapes (initial session seed + per-user auth) rather than HTTP
+payload shapes, so they live here to avoid a state→server import cycle.
 """
 from __future__ import annotations
 
@@ -12,6 +16,58 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
+
+from pydantic import BaseModel, Field
+
+from gimbal.io_utils import iter_ndjson_lines
+
+
+class UserIn(BaseModel):
+    key: str
+    url: str = ""
+    username: str = ""
+    password: str = ""
+    expires_in: int = 7200
+    token_type: str = "Authorization"
+    token: Optional[str] = None
+    confirm_password: bool = False
+
+
+class DraftIn(BaseModel):
+    """ScenarioDraft 的 wire 形式。直接由 UI 表单序列化。
+
+    v0.5.1: 新增 ``steps: list[dict]`` 字段, 携带 step 完整自定义
+    (api_override / req_override / assertions / extracts / assigns / key_hint)。
+    旧 ``step_ids`` 字段保留, 仅作为从 captures 文件派生 steps 的 fallback。
+
+    v0.5.8: ``name`` 默认值改为 ``"template"`` (新 session 草稿创建时即带此名, 提醒用户填真实名).
+    """
+    scenario_id: str = "sc_new"
+    name: str = "template"
+    description: str = ""
+    module: str = "default"
+    priority: int = 1
+    author: str = "prism"
+    owner: str = "prism"
+    tags: list[str] = Field(default_factory=list)
+    version: str = "1.0.0"
+    expire: bool = False
+    requirement_ref: list[str] = Field(default_factory=list)
+    services: dict[str, str] = Field(default_factory=dict)
+    users: list[UserIn] = Field(default_factory=list)
+    time_policy_kind: str = "record"
+    time_policy_seconds: int = 60
+    retry_enabled: bool = False
+    retry_max_attempts: int = 3
+    retry_backoff_seconds: float = 20.0
+    retry_on: list[str] = Field(default_factory=list)
+    setup_refs: list[str] = Field(default_factory=list)
+    teardown_refs: list[str] = Field(default_factory=list)
+    resources: list[dict[str, Any]] = Field(default_factory=list)
+    # v0.5.1: 完整 step 自定义 (新字段, 优先使用)
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+    # 旧字段: 仍支持, 仅在 steps 为空时作 fallback (从 captures 文件读)
+    step_ids: list[str] = Field(default_factory=list)
 
 # watchdog 是可选依赖 (lifespan 内 lazy 探测,失败则降级为无监听)
 # v0.5.2 试过 watchdog.observers.polling.PollingObserver, 但 Windows 上
@@ -74,11 +130,7 @@ class SessionStore:
             sess = Session()
             # v0.5.8: 填充 DraftIn 默认值 (含 name="template"),
             # 避免新 session 草稿是空 dict 导致前端 fields 为空
-            try:
-                from gimbal.prism.server import DraftIn  # 避免循环 import
-                sess.draft = DraftIn().model_dump()
-            except ImportError:
-                pass
+            sess.draft = DraftIn().model_dump()
             self._sessions[session_id] = sess
         return self._sessions[session_id]
 
@@ -120,11 +172,10 @@ class CaptureReader:
         path = self.home / "captures" / "active" / f"{session_id}.ndjson"
         if not path.exists():
             return []
-        events: list[dict[str, Any]] = []
-        with path.open("r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    events.append(json.loads(line))
+        try:
+            events = list(iter_ndjson_lines(path))
+        except ValueError:
+            return []  # empty file → no events
         if limit is not None and len(events) > limit:
             events = events[-limit:]
         return events

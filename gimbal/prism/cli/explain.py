@@ -8,7 +8,7 @@ from typing import Optional
 import typer
 
 from gimbal.prism import core
-from gimbal.prism.cli._shared import load_yaml, print_error
+from gimbal.prism.cli._shared import print_error
 
 
 def explain_cmd(
@@ -19,7 +19,7 @@ def explain_cmd(
     """读 scenario YAML 输出结构化摘要。"""
     if not scenario.exists():
         print_error(f"scenario not found: {scenario}", 2)
-    sc = load_yaml(scenario)
+    sc = core.load_scenario(scenario)
     summary = core.explain_scenario(sc)
     if section:
         if section not in summary:

@@ -1,6 +1,9 @@
-"""gimbal.prism.convert — NDJSON 捕获记录 → GYMAL step 片段(只整理字段, 不校验)。
+"""gimbal.prism.convert — pure NDJSON capture-record → step-fragment helpers.
 
-Phase 1.3 期间先沿用 prism.convert 的逻辑, Phase 2 期间视需要重写。
+This module is intentionally I/O-free; readers should use
+gimbal.io_utils.iter_ndjson_lines for file access and call convert_record
+in a loop. The legacy convert_file helper has been removed — callers
+should compose these two primitives directly (see core.ndjson_to_step_fragments).
 """
 from __future__ import annotations
 
@@ -33,7 +36,7 @@ def load_rules(path: Path | None) -> dict[str, Any]:
 
 
 def convert_record(record: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
-    """单条捕获记录 → 单个 step 片段。纯函数, 无 IO。"""
+    """Single capture record → one step fragment. Pure function, no IO."""
     keep = {name.lower() for name in rules["headers"]["keep"]}
     headers = {
         name: value
@@ -69,13 +72,3 @@ def convert_record(record: dict[str, Any], rules: dict[str, Any]) -> dict[str, A
     if record.get("query"):
         step["request"]["params"] = record["query"]
     return step
-
-
-def convert_file(ndjson_path: Path, rules: dict[str, Any]) -> list[dict[str, Any]]:
-    steps: list[dict[str, Any]] = []
-    with ndjson_path.open(encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                steps.append(convert_record(json.loads(line), rules))
-    return steps

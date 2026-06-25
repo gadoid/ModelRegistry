@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 
 from gimbal.prism import core
-from gimbal.prism.cli._shared import load_yaml, save_yaml, print_error
+from gimbal.prism.cli._shared import print_error
 
 user_app = typer.Typer(help="scenario users 编辑")
 
@@ -17,7 +17,7 @@ def user_list(scenario: Path = typer.Argument(...)):
     """列出所有 users。"""
     if not scenario.exists():
         print_error(f"scenario not found: {scenario}", 2)
-    sc = load_yaml(scenario)
+    sc = core.load_scenario(scenario)
     users = core.list_users(sc)
     typer.echo(json.dumps([{"key": k, **v} for k, v in users],
                           ensure_ascii=False, indent=2, default=str))
@@ -36,13 +36,13 @@ def user_add(
     """新增 user。"""
     if not scenario.exists():
         print_error(f"scenario not found: {scenario}", 2)
-    sc = load_yaml(scenario)
+    sc = core.load_scenario(scenario)
     sc = core.add_user(
         sc, key,
         url=url, username=username, password=password,
         expires_in=expires_in, token_type=token_type,
     )
-    save_yaml(sc, scenario)
+    core.save_scenario(sc, scenario)
     typer.echo(f"[prism user add] added: {key}", err=True)
 
 
@@ -54,10 +54,10 @@ def user_remove(
     """删除 user。"""
     if not scenario.exists():
         print_error(f"scenario not found: {scenario}", 2)
-    sc = load_yaml(scenario)
+    sc = core.load_scenario(scenario)
     try:
         sc = core.remove_user(sc, key)
     except KeyError:
         print_error(f"user not found: {key}", 6)
-    save_yaml(sc, scenario)
+    core.save_scenario(sc, scenario)
     typer.echo(f"[prism user remove] removed: {key}", err=True)

@@ -8,7 +8,7 @@ from typing import Any, Optional
 import typer
 
 from gimbal.prism import core
-from gimbal.prism.cli._shared import load_yaml, save_yaml, print_error
+from gimbal.prism.cli._shared import print_error
 
 config_app = typer.Typer(help="scenario config 编辑")
 
@@ -21,7 +21,7 @@ def config_get(
     """读 config 某个 section。"""
     if not scenario.exists():
         print_error(f"scenario not found: {scenario}", 2)
-    sc = load_yaml(scenario)
+    sc = core.load_scenario(scenario)
     val = core.get_config_section(sc, field)
     typer.echo(json.dumps(val, ensure_ascii=False, indent=2, default=str))
 
@@ -51,7 +51,7 @@ def config_set(
         fields["retryBackoffSeconds"] = retry_backoff_seconds
     if not fields:
         print_error("at least one --field required", 1)
-    sc = load_yaml(scenario)
+    sc = core.load_scenario(scenario)
     sc = core.set_config_section(sc, **fields)
-    save_yaml(sc, scenario)
+    core.save_scenario(sc, scenario)
     typer.echo(f"[prism config set] updated: {list(fields.keys())}", err=True)
