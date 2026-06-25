@@ -648,6 +648,96 @@ A：在 `gimbal/prism/builder.py` 的 `_RESOURCE_KIND_DISPATCH` 字典中加一�
 
 ---
 
+## §X Headless CLI (v0.6+)
+
+`gimbal prism` 提供 9 个 headless 子命令, 无需启动 web 服务器。
+
+### §X.1 Pipeline 子命令
+
+- `gimbal prism convert -i foo.ndjson [-c cfg.yaml] [-o out.yaml]` — NDJSON + 配置 → Scenario YAML (stdout 缺省)
+- `gimbal prism inspect -i foo.ndjson [--json]` — 统计 (event 数 / method 分布 / host 分布 / status 分布) + 前 3 条样本
+- `gimbal prism validate -c cfg.yaml` — 校验 config YAML 是否合法
+- `gimbal prism to-steps -i foo.ndjson [-o steps.json]` — NDJSON → step 片段 JSON (中间产物)
+- `gimbal prism explain <scenario.yaml> [--section meta]` — 输出结构化摘要
+
+### §X.2 Edit 子命令 (按 section 分组)
+
+- `gimbal prism meta get <sc> [--field name]`
+- `gimbal prism meta set <sc> [--name ...] [--description ...] [--module ...] [--priority N] [--dry-run]`
+- `gimbal prism user list <sc>`
+- `gimbal prism user add <sc> --key K [--url ... --username ... --password ... --expires-in N]`
+- `gimbal prism user remove <sc> --key K`
+- `gimbal prism resource list <sc>`
+- `gimbal prism resource add <sc> --name N [--kind mock|mock_ref|file|file_ref] [--image ...] [--port HOST:CONT]`
+- `gimbal prism resource remove <sc> --name N`
+- `gimbal prism config get <sc> [--field timePolicy|retry|...]`
+- `gimbal prism config set <sc> [--time-policy-kind ... --time-policy-seconds N --retry-enabled --retry-max-attempts N ...]`
+
+### §X.3 Config YAML Schema
+
+```yaml
+scenario_id: sc_id           # 缺省: 从 NDJSON 文件名派生
+name: "用例名"                # 缺省: 同 scenario_id
+description: ""              # 缺省: ""
+module: default              # 缺省: "default"
+priority: 1
+tags: [smoke]
+services:
+  api.example.com: auth-api
+users:
+  admin:
+    url: https://api.example.com/auth/login
+    username: admin
+    password: ${env:ADMIN_PWD}    # v1 支持 env 占位符
+    expires_in: 7200
+    token_type: Authorization
+time_policy:
+  kind: record                   # record | timeout
+  seconds: 60
+retry:
+  enabled: false
+  max_attempts: 3
+  backoff_seconds: 20
+resources:
+  - name: redis
+    kind: mock
+    image: redis:7
+    port_mapping: {"6379": 6379}
+```
+
+### §X.4 退出码
+
+| Code | 含义 |
+|---|---|
+| 0 | 成功 |
+| 1 | 参数错误 |
+| 2 | 输入文件不存在 |
+| 3 | NDJSON/YAML 空或损坏 |
+| 4 | scenario/config 校验失败 |
+| 5 | 内部异常 |
+| 6 | edit 冲突 (如 remove 不存在的 user) |
+
+### §X.5 常见工作流
+
+```bash
+# CI: NDJSON → scenarios/foo.yaml
+gimbal prism convert -i captures/dev-1.ndjson -c cfg.yaml -o scenarios/dev-1.yaml
+
+# 调试: 看 NDJSON 里有什么
+gimbal prism inspect -i captures/dev-1.ndjson
+
+# 调试: 看现有 scenario 长啥样
+gimbal prism explain scenarios/dev-1.yaml --section meta
+
+# 编辑: 加一个 user
+gimbal prism user add scenarios/dev-1.yaml --key admin --username admin --password-env ADMIN_PWD
+
+# 验证: 改完再 validate
+gimbal prism validate -c cfg.yaml
+```
+
+---
+
 ## 15. 许可
 
 Proprietary（仅限团队内部使用）。
