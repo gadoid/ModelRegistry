@@ -287,3 +287,80 @@ def explain_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
         "steps_count": len(scenario.get("steps") or []),
         "resources": list((scenario.get("resource") or {}).keys()),
     }
+
+
+def _deep_copy(d: dict[str, Any]) -> dict[str, Any]:
+    import copy
+    return copy.deepcopy(d)
+
+
+def get_meta(scenario: dict[str, Any]) -> dict[str, Any]:
+    return dict(scenario.get("meta") or {})
+
+
+def set_meta(scenario: dict[str, Any], **fields: Any) -> dict[str, Any]:
+    sc = _deep_copy(scenario)
+    sc.setdefault("meta", {}).update(fields)
+    validate_scenario(sc)
+    return sc
+
+
+def list_users(scenario: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    users = (scenario.get("config") or {}).get("users") or {}
+    return [(k, dict(v)) for k, v in users.items()]
+
+
+def add_user(
+    scenario: dict[str, Any], key: str, **fields: Any,
+) -> dict[str, Any]:
+    sc = _deep_copy(scenario)
+    sc.setdefault("config", {}).setdefault("users", {})[key] = fields
+    validate_scenario(sc)
+    return sc
+
+
+def remove_user(scenario: dict[str, Any], key: str) -> dict[str, Any]:
+    sc = _deep_copy(scenario)
+    users = sc.setdefault("config", {}).setdefault("users", {})
+    if key not in users:
+        raise KeyError(f"user not found: {key}")
+    del users[key]
+    validate_scenario(sc)
+    return sc
+
+
+def list_resources(scenario: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    res = scenario.get("resource") or {}
+    return [(k, dict(v)) for k, v in res.items()]
+
+
+def add_resource(
+    scenario: dict[str, Any], name: str, **fields: Any,
+) -> dict[str, Any]:
+    sc = _deep_copy(scenario)
+    payload = {"name": name, **fields}
+    sc.setdefault("resource", {})[name] = payload
+    validate_scenario(sc)
+    return sc
+
+
+def remove_resource(scenario: dict[str, Any], name: str) -> dict[str, Any]:
+    sc = _deep_copy(scenario)
+    res = sc.setdefault("resource", {})
+    if name not in res:
+        raise KeyError(f"resource not found: {name}")
+    del res[name]
+    validate_scenario(sc)
+    return sc
+
+
+def get_config_section(scenario: dict[str, Any], field: str) -> Any:
+    return (scenario.get("config") or {}).get(field)
+
+
+# set_config_section 的字段名以 Pydantic Config 字段为准 (camelCase)
+def set_config_section(scenario: dict[str, Any], **fields: Any) -> dict[str, Any]:
+    sc = _deep_copy(scenario)
+    sc.setdefault("config", {}).update(fields)
+    validate_scenario(sc)
+    return sc

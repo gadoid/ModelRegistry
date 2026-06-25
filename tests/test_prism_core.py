@@ -172,3 +172,53 @@ def test_explain_scenario_returns_summary():
     assert "meta" in summary
     assert "steps_count" in summary
     assert summary["steps_count"] == 1
+
+
+def _make_scenario():
+    events = [{"host": "api.example.com", "method": "GET", "path": "/x",
+               "headers": {}, "body": "", "response": {"status": 200}}]
+    return core.render(core.load_config(None, events))
+
+
+def test_set_meta_roundtrip():
+    sc = _make_scenario()
+    sc2 = core.set_meta(sc, name="New name", description="New desc")
+    assert sc2["meta"]["name"] == "New name"
+    assert sc2["meta"]["description"] == "New desc"
+
+
+def test_user_add_remove_roundtrip():
+    sc = _make_scenario()
+    sc = core.add_user(sc, "ops", url="https://x", username="ops", password="p")
+    assert "ops" in sc["config"]["users"]
+    users = core.list_users(sc)
+    assert any(k == "ops" for k, _ in users)
+    sc = core.remove_user(sc, "ops")
+    assert "ops" not in sc["config"]["users"]
+
+
+def test_remove_user_raises_for_missing():
+    sc = _make_scenario()
+    with pytest.raises(KeyError):
+        core.remove_user(sc, "ghost")
+
+
+def test_resource_add_remove_roundtrip():
+    sc = _make_scenario()
+    sc = core.add_resource(sc, "redis", kind="mock", image="redis:7",
+                           portMapping={6379: 6379})
+    assert "redis" in sc["resource"]
+    resources = core.list_resources(sc)
+    assert any(n == "redis" for n, _ in resources)
+    sc = core.remove_resource(sc, "redis")
+    assert "redis" not in sc["resource"]
+
+
+def test_config_get_set_section():
+    sc = _make_scenario()
+    tp = core.get_config_section(sc, "timePolicy")
+    assert tp is not None
+    sc = core.set_config_section(sc, timePolicy={"kind": "timeout", "seconds": 120})
+    tp = core.get_config_section(sc, "timePolicy")
+    assert tp["kind"] == "timeout"
+    assert tp["seconds"] == 120
