@@ -12,6 +12,7 @@ import typer
 from .convert import convert_cmd
 from .inspect import inspect_cmd
 from .start import start_cmd
+from .to_steps import to_steps_cmd
 from .validate import validate_cmd
 
 # 各子命令的 cmd 函数在 Task 10+ 由对应模块注册到 prism_app。
@@ -20,6 +21,7 @@ prism_app = typer.Typer(help="gimbal prism CLI 子命令", no_args_is_help=True)
 prism_app.command("start")(start_cmd)
 prism_app.command("convert")(convert_cmd)
 prism_app.command("inspect")(inspect_cmd)
+prism_app.command("to-steps")(to_steps_cmd)
 prism_app.command("validate")(validate_cmd)
 
-__all__ = ["prism_app", "start_cmd", "convert_cmd", "inspect_cmd", "validate_cmd"]
+__all__ = ["prism_app", "start_cmd", "convert_cmd", "inspect_cmd", "to_steps_cmd", "validate_cmd"]
