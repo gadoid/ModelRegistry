@@ -10,6 +10,7 @@ from __future__ import annotations
 import typer
 
 from .convert import convert_cmd
+from .edit.meta import meta_app
 from .explain import explain_cmd
 from .inspect import inspect_cmd
 from .start import start_cmd
@@ -25,5 +26,6 @@ prism_app.command("explain")(explain_cmd)
 prism_app.command("inspect")(inspect_cmd)
 prism_app.command("to-steps")(to_steps_cmd)
 prism_app.command("validate")(validate_cmd)
+prism_app.add_typer(meta_app, name="meta")
 
 __all__ = ["prism_app", "start_cmd", "convert_cmd", "explain_cmd", "inspect_cmd", "to_steps_cmd", "validate_cmd"]
