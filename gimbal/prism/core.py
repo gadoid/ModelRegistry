@@ -14,8 +14,6 @@ from typing import Any
 
 import yaml
 
-from pydantic import ValidationError as PydanticValidationError
-
 from gimbal.prism.builder import (
     AuthDraft,
     ResourceDraft,
