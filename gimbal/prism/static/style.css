@@ -646,26 +646,6 @@ header {
 }
 .step-toolbar .add-step-btn:hover { background: var(--accent-hover); }
 
-.import-row {
-  display: flex; gap: 6px; margin-top: 14px;
-  padding-top: 12px;
-  border-top: .5px solid var(--color-border-tertiary);
-}
-.import-row input { flex: 1; }
-.import-row button {
-  background: var(--accent); color: #fff; border: 0;
-  padding: 6px 14px; border-radius: 6px;
-  font-size: 12px; cursor: pointer;
-}
-.import-row button:hover { background: var(--accent-hover); }
-.import-row button:disabled { opacity: .5; cursor: not-allowed; }
-.import-row.prism-drop-target {
-  background: var(--accent-soft);
-  outline: 2px dashed var(--accent);
-  outline-offset: -4px;
-  border-radius: 6px;
-}
-
 /* ───────── Modal ───────── */
 .modal {
   position: fixed; inset: 0; background: rgba(15,23,42,0.55);
@@ -1045,6 +1025,9 @@ button:focus-visible, .yaml-toggle:focus-visible, .tab:focus-visible {
 }
 
 /* ───────── Step Pagination v0.5.5 ───────── */
+/* v0.5.5 fix: author CSS .step-layout { display: grid } 会盖过 UA 的 [hidden] { display: none }。
+   这里加一条 [hidden] 联合选择器拉高特异性, 确保 hidden 属性真正生效 (空 step 时整列藏掉)。 */
+.step-layout[hidden] { display: none; }
 .step-layout {
   display: grid;
   grid-template-columns: 96px 1fr;

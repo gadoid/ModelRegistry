@@ -49,3 +49,19 @@ def test_sticky_sidebar():
     assert "position: sticky" in new_block, "侧栏必须 sticky"
     assert "max-height: calc(100vh - 220px)" in new_block, \
         "侧栏必须限制最大高度并可滚动"
+
+
+def test_step_layout_hidden_attribute_overrides_display_grid():
+    """``[hidden]`` 必须真正藏起 .step-layout (避免 author display:grid 盖过 UA display:none)。"""
+    text = _read()
+    # 必须有 .step-layout[hidden] 显式 display: none 规则
+    assert ".step-layout[hidden]" in text, (
+        "缺少 .step-layout[hidden] { display: none; } 规则; "
+        "否则 hidden 属性被 .step-layout { display: grid } 盖住, 同步逻辑失效"
+    )
+    # 该规则必须 display: none
+    import re
+    m = re.search(r"\.step-layout\[hidden\]\s*\{([^}]*)\}", text, re.DOTALL)
+    assert m, "未匹配到 .step-layout[hidden] 规则体"
+    body = m.group(1)
+    assert "display: none" in body, ".step-layout[hidden] 必须 display: none"

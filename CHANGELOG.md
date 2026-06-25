@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.6.0 (2026-06-24) — Headless CLI (prism-core)
+
+### 新增 (Added)
+
+- **`gimbal.prism.core`** — 共享 pipeline + edit 原语 (NDJSON → Scenario YAML)
+  - Pipeline: `parse_ndjson` / `load_config` / `render` / `write` / `inspect_ndjson` / `validate_config` / `ndjson_to_step_fragments`
+  - Edit: `load_scenario` / `save_scenario` / `validate_scenario` / `explain_scenario` / `get_meta` / `set_meta` / `list_users` / `add_user` / `remove_user` / `list_resources` / `add_resource` / `remove_resource` / `get_config_section` / `set_config_section`
+
+- **`gimbal prism` 新增 9 个子命令** (web `prism start` 不动):
+  - Pipeline: `convert` / `inspect` / `validate` / `to-steps` / `explain`
+  - Edit (按 section): `meta` / `user` / `resource` / `config`
+
+- **Parity canary** (`tests/test_prism_core_builder_parity.py`) — web (`builder.build_scenario`) 与 CLI (`core.convert_ndjson_to_scenario`) 输出 byte-identical, CI 必跑
+
+- **CLI config YAML schema** — snake_case (`time_policy`, `retry`), 与 web `DraftIn` 字段语义一致
+
+### 变更 (Changed)
+
+- `gimbal/prism/cli.py` (单文件) → `gimbal/prism/cli/` (子包), 包含 `start.py` + `_shared.py` + 7 subcommand 文件 + `edit/` 子目录
+
+### 不变 (Unchanged)
+
+- `gimbal/prism/server.py` (web 一行不动)
+- `gimbal/prism/builder.py` (`core` 复用, 不重写)
+- `gimbal/prism/convert.py` (`core` 复用, 不重写)
+- 现有 237 个 web 测试保持绿
+
+### 文件清单
+
+```
+NEW:
+  gimbal/prism/core.py
+  gimbal/prism/cli/{__init__,_shared,start,convert,inspect,validate,to_steps,explain}.py
+  gimbal/prism/cli/edit/{__init__,meta,user,resource,config}.py
+  tests/test_prism_core.py
+  tests/test_prism_core_builder_parity.py
+  tests/test_prism_cli_{convert,inspect,validate,to_steps,explain,meta,user,resource,config}.py
+  tests/fixtures/sample_config.yaml
+  tests/fixtures/minimal_captures.ndjson
+```
+
+---
+
 ## v0.5.5 (2026-06-23) — Step 分页 + 空状态文件选择器
 
 ### 新增 (Added)

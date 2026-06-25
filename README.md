@@ -93,6 +93,15 @@ gimbal capture archive dev-1
 | `gimbal capture show <sid>` | 查看某 session 的事件 |
 | `gimbal capture archive <sid>` | 手动归档 |
 | `gimbal prism start` | 启动 web 配置器 (默认 :8765) |
+| `gimbal prism convert` | NDJSON (+ config) → Scenario YAML |
+| `gimbal prism inspect` | NDJSON 统计 + 前 N 条样本 |
+| `gimbal prism validate` | config YAML 校验 |
+| `gimbal prism to-steps` | NDJSON → step 片段 JSON |
+| `gimbal prism explain <sc>` | scenario YAML 结构摘要 |
+| `gimbal prism meta get/set` | 读 / 改 scenario meta 字段 |
+| `gimbal prism user list/add/remove` | 读 / 改 scenario users |
+| `gimbal prism resource list/add/remove` | 读 / 改 scenario resources |
+| `gimbal prism config get/set` | 读 / 改 scenario config sections |
 
 ## v0.4 状态 (Capture Filter Strategy)
 

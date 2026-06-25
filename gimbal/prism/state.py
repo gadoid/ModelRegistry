@@ -255,4 +255,6 @@ class CaptureWatcher:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
-            self._observer.join()
+        # 注: v0.5.4 之前用 watchdog PollingObserver (赋给 self._observer),
+        # 后来改自实现轮询线程 (self._thread),_observer 字段已不存在,
+        # 不再 join 它以避免 AttributeError

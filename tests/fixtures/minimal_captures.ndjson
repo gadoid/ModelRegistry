@@ -1,0 +1,1 @@
+{"ts": 1.0, "method": "GET", "host": "api.example.com", "scheme": "https", "port": 443, "path": "/health", "query": {}, "headers": {}, "body": "", "response": {"status": 200}}

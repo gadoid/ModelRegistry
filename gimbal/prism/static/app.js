@@ -779,7 +779,12 @@ function updateUrlPreview(card, s) {
   const color = { GET: '#166534', POST: '#4c1d95', PUT: '#854d0e', DELETE: '#881337', PATCH: '#155e75' }[method] || '#64748b';
   el.innerHTML = `<span class="up-method" style="color:${color}">${method}</span> <code>${escapeHtml(full)}</code>`;
 }
-function syncStepEmpty() { $('step-empty').hidden = state.steps.length > 0; }
+function syncStepEmpty() {
+  const hasSteps = state.steps.length > 0;
+  $('step-empty').hidden = hasSteps;
+  // v0.5.5: 空 step 时整列 step-list (含 96px sidebar) 一起藏, 避免空 grid 露馅
+  $('step-list').hidden = !hasSteps;
+}
 function ensureStepIds() { state.steps.forEach((s) => { if (!s.__sid) s.__sid = uid('step'); }); }
 
 function renderStepSidebar() {
@@ -1094,16 +1099,9 @@ $('add-step').addEventListener('click', (e) => {
   pushHistory();
   renderSteps();
 });
-$('expand-all').addEventListener('click', (e) => {
-  e.stopPropagation();
-  state.collapsedSteps.clear();
-  renderSteps();
-});
-$('collapse-all').addEventListener('click', (e) => {
-  e.stopPropagation();
-  state.collapsedSteps = new Set(state.steps.map((s) => s.__sid));
-  renderSteps();
-});
+// v0.5.5: expand-all / collapse-all 已在 HTML 中删除 (refactor: spec §1.1, 折叠/展开改为单展开手风琴),
+// 监听器必须同时删除, 否则 $('expand-all') 返回 null, 顶层 addEventListener throw 阻断 init 后续代码
+// (WebSocket 不连 / auto-save 不启动 / 一些 path 静默坏掉)。这是 click 新增 step 实际无响应的根因之一。
 
 // ── Strategy 行内编辑器 ─────────────────────────────────
 const ASSERTION_OPERATORS = ['eq','ne','gt','ge','lt','le','in','nin','contains','startswith','endswith','regex','isnull','notnull'];
@@ -1231,7 +1229,8 @@ function _eventToStepDraft(c) {
   };
 }
 async function _pullCaptures() {
-  const listR = await fetch('/api/captures');
+  const sid = encodeURIComponent(state.sessionId || 'default');
+  const listR = await fetch(`/api/captures?sid=${sid}`);
   const listD = await listR.json();
   state.captures = Array.isArray(listD.events) ? listD.events : [];
   updateCapturesBadge();
@@ -1264,14 +1263,19 @@ async function _importNdjsonFile(file) {
     return { added: 0, total: 0, readLines: 0 };
   }
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const injectSid = encodeURIComponent(state.sessionId || 'default');
   let n = 0;
   for (const line of lines) {
     try {
       const ev = JSON.parse(line);
-      await fetch('/api/captures/inject', {
+      const r = await fetch(`/api/captures/inject?sid=${injectSid}`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(ev),
       });
+      if (!r.ok) {
+        console.warn(`inject failed: ${r.status} ${r.statusText}`, ev);
+        continue;
+      }
       n += 1;
     } catch (_) { /* skip bad line */ }
   }
@@ -1470,7 +1474,8 @@ $('clear-captures').addEventListener('click', async () => {
   if (!state.captures.length) return;
   const ok = await confirmModal('清空 captures', '清空内存中的所有捕获事件(steps 不会被删除),确认?', { ok: '清空' });
   if (!ok) return;
-  await fetch('/api/captures', { method: 'DELETE' });
+  const sid = encodeURIComponent(state.sessionId || 'default');
+  await fetch(`/api/captures?sid=${sid}`, { method: 'DELETE' });
   state.captures = [];
   state.capturesLocallyCleared = true;
   updateCapturesBadge();
@@ -1520,12 +1525,24 @@ function serializeDraft() {
         key_hint: s.key_hint || '',
         note: s.note || '',
       };
+      // v0.5.5 修复 (#15): UI 编辑的 method/path/service/params/body/headers 存在
+      // s.api 和 s.req 里,之前 serialize 只在已有 override 时才写,导致用户编辑
+      // 保存后丢失。现在无条件把 s.api → api_override, s.req → req_override。
+      out.api_override = s.api ? { ...s.api } : undefined;
+      if (s.req) {
+        out.req_override = {
+          params: s.req.params || {},
+          body: s.req.body || {},
+          headers: s.req.headers || {},
+        };
+      }
+      // 显式 override 优先于 capture (server 端 _draft_from_in 逻辑)
       if (s.api_override) out.api_override = s.api_override;
       if (s.req_override) {
-        // 过滤 undefined 字段, 不污染 wire
         out.req_override = {
           params: s.req_override.params || {},
           body: s.req_override.body || {},
+          headers: s.req_override.headers || {},
         };
       }
       return out;
@@ -1599,16 +1616,48 @@ async function loadDraft() {
       rest.__rid = uid('res');
       state.resources[name] = rest;
     }
-    state.steps = (draft.step_ids || []).map((sid) => {
-      const ev = state.captures[+sid];
-      const ns = ev ? _eventToStepDraft(ev) : {
-        capture: { method: 'GET', path: '/' },
-        api: { service: '', method: 'GET', path: '/' },
-        req: { body: {} }, assertions: [], extracts: [], assigns: [],
-      };
-      ns.__sid = uid('step');
-      return ns;
-    });
+    // v0.5.5 修复 (#4): 优先读新格式 draft.steps (包含完整 step 数据),
+    // 旧格式 draft.step_ids (只有 capture 索引) 只在没有 draft.steps 时回退
+    if (Array.isArray(draft.steps) && draft.steps.length) {
+      state.steps = draft.steps.map((s) => {
+        // 从 capture 出发,叠 api_override / req_override
+        const ns = s.capture
+          ? _eventToStepDraft(s.capture)
+          : { capture: { method: 'GET', path: '/' },
+              api: { service: '', method: 'GET', path: '/' },
+              req: { body: {} }, assertions: [], extracts: [], assigns: [] };
+        if (s.api_override) ns.api = { ...ns.api, ...s.api_override };
+        if (s.req_override) {
+          ns.req = {
+            ...(ns.req || {}),
+            params: s.req_override.params || {},
+            body: s.req_override.body || {},
+            headers: s.req_override.headers || (ns.req && ns.req.headers) || {},
+          };
+        }
+        ns.enabled = s.enabled !== false;
+        ns.add_status_assertion = s.add_status_assertion !== false;
+        ns.extracts = s.extracts || [];
+        ns.assigns = s.assigns || [];
+        ns.assertions = s.assertions || [];
+        ns.key_hint = s.key_hint || '';
+        ns.note = s.note || '';
+        ns.__sid = uid('step');
+        return ns;
+      });
+    } else {
+      // 旧格式 fallback: 只有 capture 索引, 完整 step 数据丢失
+      state.steps = (draft.step_ids || []).map((sid) => {
+        const ev = state.captures[+sid];
+        const ns = ev ? _eventToStepDraft(ev) : {
+          capture: { method: 'GET', path: '/' },
+          api: { service: '', method: 'GET', path: '/' },
+          req: { body: {} }, assertions: [], extracts: [], assigns: [],
+        };
+        ns.__sid = uid('step');
+        return ns;
+      });
+    }
     validateAll();
     state.hydrating = false;
     state.undoStack = [snapshot()];
@@ -1771,16 +1820,6 @@ window.addEventListener('unhandledrejection', (e) => {
   document.body && document.body.appendChild(banner);
 });
 
-// v0.5.5: tab 事件绑定提前到 module 顶层,确保 init() 即使 throw 也能切 tab
-// 使用事件委托(document 上),即使 tab 按钮被 recreate 也能 catch
-document.addEventListener('click', (e) => {
-  const tabBtn = e.target && e.target.closest && e.target.closest('.tab');
-  if (tabBtn && tabBtn.dataset && tabBtn.dataset.idx != null) {
-    e.stopPropagation();
-    try { switchTo(+tabBtn.dataset.idx); } catch (err) { console.error('switchTo error', err); }
-  }
-});
-
 (async function init() {
   detectSession();
   bindMeta();
@@ -1824,10 +1863,7 @@ document.addEventListener('click', (e) => {
       }
     });
   }
-  // tab 事件
-  $$('.tab').forEach((t) => {
-    t.addEventListener('click', (e) => { e.stopPropagation(); switchTo(+t.dataset.idx); });
-  });
+  // tab 事件 — tab 按钮用 HTML 内联 onclick (见 index.html),这里只绑 page click 委托
   $$('.page').forEach((p) => {
     p.addEventListener('click', (e) => {
       if (e.target.closest('input,select,textarea,button,.tag-pill,.tags-wrap,.user-block,.resource-tile,.step-card,.strategy-item'))
@@ -1835,6 +1871,9 @@ document.addEventListener('click', (e) => {
     });
   });
   await loadDraft();
+  // v0.5.5: loadDraft 早返 (无 draft) 时不会调 renderAll, 这里补一次,
+  // 确保 syncStepEmpty 把 #step-list 在空 step 时也藏起来
+  renderAll();
   // 初始 history snapshot
   if (!state.undoStack.length) state.undoStack = [snapshot()];
   connectWs();

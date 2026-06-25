@@ -33,7 +33,7 @@ except ImportError:
     pass
 
 try:
-    from gimbal.cli.prism import prism_app
+    from gimbal.prism.cli import prism_app
 
     app.add_typer(prism_app, name="prism")
 except ImportError:
