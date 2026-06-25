@@ -195,7 +195,9 @@ git commit -m "feat(prism-core): add parse_ndjson primitive (TDD)"
 **Interfaces:**
 - `load_config(path: Path | None, events: list[dict[str, Any]]) -> ScenarioDraft`
 - Returns a `gimbal.prism.builder.ScenarioDraft` populated from config YAML.
-- If `path is None`: returns default draft with steps filled from events (scenario_id = `sc_<stem-of-NDJSON>`, name = same).
+- If `path is None`: returns default draft with steps filled from events.
+  - scenario_id derived from first event's `host` + `path` via `_scenario_id_from_events(events)` (e.g., `host=api.example.com, path=/x` → `sc_api_example_com_x`).
+  - If `events` is empty → `sc_default`.
 - Field mapping: `time_policy.kind` → `timePolicyKind`, `retry.max_attempts` → `retryMaxAttempts`, etc. (snake_case in YAML, camelCase on draft).
 
 - [ ] **Step 1: 创建 sample config fixture**
@@ -253,8 +255,15 @@ def test_load_config_none_returns_default_draft():
                "headers": {}, "body": "", "response": {"status": 200}}]
     draft = core.load_config(None, events)
     assert isinstance(draft, ScenarioDraft)
-    assert draft.scenario_id == "sc_default"  # 当 events 为空 dict / path 缺省时
+    # scenario_id 从 first event 的 host + path 派生
+    assert draft.scenario_id == "sc_api_example_com_x"
     assert len(draft.steps) == 1
+
+
+def test_load_config_none_with_empty_events_uses_sc_default():
+    draft = core.load_config(None, [])
+    assert draft.scenario_id == "sc_default"
+    assert draft.steps == []
 
 
 def test_load_config_full_yaml():
