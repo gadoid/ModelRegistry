@@ -358,9 +358,39 @@ def get_config_section(scenario: dict[str, Any], field: str) -> Any:
     return (scenario.get("config") or {}).get(field)
 
 
-# set_config_section 的字段名以 Pydantic Config 字段为准 (camelCase)
+# set_config_section 的字段名以 Pydantic Config 字段为准 (camelCase).
+# 当传 timePolicyKind/timePolicySeconds 这种扁平字段时，会被合并进嵌套
+# timePolicy: {kind, seconds}；retryEnabled/MaxAttempts/BackoffSeconds 合并进
+# retry: {enabled, maxAttempts, backoffSeconds}。
 def set_config_section(scenario: dict[str, Any], **fields: Any) -> dict[str, Any]:
     sc = _deep_copy(scenario)
-    sc.setdefault("config", {}).update(fields)
+    cfg = sc.setdefault("config", {})
+    if "timePolicyKind" in fields or "timePolicySeconds" in fields:
+        tp = cfg.setdefault("timePolicy", {})
+        if "timePolicyKind" in fields:
+            tp["kind"] = fields.pop("timePolicyKind")
+        if "timePolicySeconds" in fields:
+            tp["seconds"] = fields.pop("timePolicySeconds")
+    retry_keys = {"retryEnabled", "retryMaxAttempts", "retryBackoffSeconds", "retryOn"}
+    if any(k in fields for k in retry_keys):
+        # retryEnabled=False 显式禁用 retry → cfg["retry"] = None
+        if fields.get("retryEnabled") is False and "retryMaxAttempts" not in fields \
+                and "retryBackoffSeconds" not in fields and "retryOn" not in fields:
+            cfg["retry"] = None
+            fields.pop("retryEnabled")
+        else:
+            rt = cfg.get("retry")
+            if not isinstance(rt, dict):
+                rt = {"kind": "retry_policy"}
+                cfg["retry"] = rt
+            if "retryEnabled" in fields:
+                fields.pop("retryEnabled")  # 启用由 cfg["retry"] 非 None 表达
+            if "retryMaxAttempts" in fields:
+                rt["maxAttempts"] = fields.pop("retryMaxAttempts")
+            if "retryBackoffSeconds" in fields:
+                rt["backoffSeconds"] = fields.pop("retryBackoffSeconds")
+            if "retryOn" in fields:
+                rt["retryOn"] = fields.pop("retryOn")
+    cfg.update(fields)
     validate_scenario(sc)
     return sc
