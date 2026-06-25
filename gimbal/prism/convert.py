@@ -4,6 +4,7 @@ Phase 1.3 期间先沿用 prism.convert 的逻辑, Phase 2 期间视需要重写
 """
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,10 @@ DEFAULT_RULES: dict[str, Any] = {
 
 def load_rules(path: Path | None) -> dict[str, Any]:
     if path is None:
-        return DEFAULT_RULES
+        # Return a deep copy so callers can mutate the result (e.g.
+        # `rules["services"].update(...)`) without leaking into the
+        # module-level singleton.
+        return copy.deepcopy(DEFAULT_RULES)
     rules = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return {
         "services": rules.get("services") or {},

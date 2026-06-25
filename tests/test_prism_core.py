@@ -222,3 +222,37 @@ def test_config_get_set_section():
     tp = core.get_config_section(sc, "timePolicy")
     assert tp["kind"] == "timeout"
     assert tp["seconds"] == 120
+
+
+def test_ndjson_to_step_fragments_does_not_leak_services_across_calls(tmp_path):
+    """Regression: load_rules(None) must return a fresh copy, not the singleton.
+
+    Calling ndjson_to_step_fragments twice with different config services must
+    not leak the first config's services into the second call's output.
+    """
+    from gimbal.prism.convert import DEFAULT_RULES
+
+    cfg_a = tmp_path / "cfg_a.yaml"
+    cfg_a.write_text(
+        "services:\n  api.example.com: service-A\n",
+        encoding="utf-8",
+    )
+    cfg_b = tmp_path / "cfg_b.yaml"
+    cfg_b.write_text(
+        "services:\n  api.example.com: service-B\n",
+        encoding="utf-8",
+    )
+
+    frags_a = core.ndjson_to_step_fragments(
+        FIXTURES / "minimal_captures.ndjson", cfg_a,
+    )
+    frags_b = core.ndjson_to_step_fragments(
+        FIXTURES / "minimal_captures.ndjson", cfg_b,
+    )
+
+    # cfg_A → service-A
+    assert frags_a[0]["api"]["service"] == "service-A"
+    # cfg_B → service-B (not service-A leaking from prior call)
+    assert frags_b[0]["api"]["service"] == "service-B"
+    # The shared DEFAULT_RULES module singleton must remain pristine
+    assert DEFAULT_RULES["services"] == {}
