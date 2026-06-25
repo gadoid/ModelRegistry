@@ -7,6 +7,7 @@ canary that detects drift.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,15 @@ class ConvertResult:
     warnings: list[str] = field(default_factory=list)
     event_count: int = 0
     step_count: int = 0
+
+
+@dataclass
+class NdjsonStats:
+    event_count: int
+    method_counts: dict[str, int]
+    host_counts: dict[str, int]
+    status_counts: dict[int, int]
+    sample_events: list[dict[str, Any]]
 
 
 def render(draft: ScenarioDraft) -> dict[str, Any]:
@@ -185,3 +195,55 @@ def convert_ndjson_to_scenario(
     )
     write(result, output_path)
     return result
+
+
+def inspect_ndjson(path: Path, sample_limit: int = 3) -> NdjsonStats:
+    """Compute stats over NDJSON events."""
+    events = parse_ndjson(path)
+    methods: Counter[str] = Counter()
+    hosts: Counter[str] = Counter()
+    statuses: Counter[int] = Counter()
+    for e in events:
+        methods[(e.get("method") or "GET").upper()] += 1
+        hosts[e.get("host") or ""] += 1
+        st = (e.get("response") or {}).get("status")
+        if st is not None:
+            statuses[st] += 1
+    return NdjsonStats(
+        event_count=len(events),
+        method_counts=dict(methods),
+        host_counts=dict(hosts),
+        status_counts=dict(statuses),
+        sample_events=events[:sample_limit],
+    )
+
+
+def validate_config(path: Path) -> list[str]:
+    """Validate a config YAML against Scenario schema (after loading events).
+
+    Returns a list of error strings; empty list means valid.
+    For pure config validation without events, we use a synthetic event so
+    build_scenario doesn't reject on empty steps.
+    """
+    events = [{"host": "_validate", "method": "GET", "path": "/_validate",
+               "headers": {}, "body": "", "response": {"status": 200}}]
+    try:
+        draft = load_config(path, events)
+        render(draft)
+        return []
+    except Exception as e:  # noqa: BLE001
+        return [str(e)]
+
+
+def ndjson_to_step_fragments(
+    ndjson_path: Path, config_path: Path | None,
+) -> list[dict[str, Any]]:
+    """Convert NDJSON to step fragment dicts (no scenario assembly)."""
+    from gimbal.prism.convert import convert_record, load_rules  # noqa: PLC0415
+
+    events = parse_ndjson(ndjson_path)
+    rules = load_rules(None)  # default rules; config file's services handled later
+    if config_path is not None:
+        cfg_raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        rules["services"].update(cfg_raw.get("services") or {})
+    return [convert_record(e, rules) for e in events]

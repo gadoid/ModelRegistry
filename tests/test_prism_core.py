@@ -113,3 +113,32 @@ def test_convert_ndjson_to_scenario_full_pipeline(tmp_path):
     assert result.event_count == 1
     assert result.step_count == 1
     assert out.exists()
+
+
+def test_inspect_ndjson_stats():
+    stats = core.inspect_ndjson(FIXTURES / "sample_captures.ndjson", sample_limit=2)
+    assert stats.event_count == 3
+    assert stats.method_counts == {"POST": 1, "GET": 2}
+    assert stats.host_counts == {"api.example.com": 3}
+    assert stats.status_counts == {200: 2, 404: 1}
+    assert len(stats.sample_events) == 2
+
+
+def test_validate_config_returns_empty_for_valid():
+    errors = core.validate_config(FIXTURES / "sample_config.yaml")
+    assert errors == []
+
+
+def test_validate_config_returns_errors_for_invalid(tmp_path):
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("scenario_id: 123\nname: ''\n")  # name 不能为空
+    errors = core.validate_config(bad)
+    assert any("name" in e.lower() for e in errors)
+
+
+def test_ndjson_to_step_fragments_returns_list():
+    frags = core.ndjson_to_step_fragments(FIXTURES / "minimal_captures.ndjson", None)
+    assert isinstance(frags, list)
+    assert len(frags) == 1
+    assert "api" in frags[0]
+    assert "request" in frags[0]
