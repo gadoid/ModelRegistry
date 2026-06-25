@@ -356,11 +356,68 @@ def get_config_section(scenario: dict[str, Any], field: str) -> Any:
     return (scenario.get("config") or {}).get(field)
 
 
-# set_config_section 的字段名以 Pydantic Config 字段为准 (camelCase).
-# 当传 timePolicyKind/timePolicySeconds 这种扁平字段时，会被合并进嵌套
-# timePolicy: {kind, seconds}；retryEnabled/MaxAttempts/BackoffSeconds 合并进
-# retry: {enabled, maxAttempts, backoffSeconds}。
 def set_config_section(scenario: dict[str, Any], **fields: Any) -> dict[str, Any]:
+    """Update a scenario's ``config`` section in place (returns a deep copy).
+
+    This helper accepts TWO equivalent encodings for the same logical fields.
+    Both are preserved for backward compatibility; callers should prefer the
+    flat flag form unless they have a specific reason to use the dict form.
+
+    Form 1 — Flat flags (PUBLIC / CLI form, preferred):
+        ``set_config_section(sc, timePolicyKind="timeout", timePolicySeconds=120,
+        retryMaxAttempts=5, retryBackoffSeconds=2)``
+
+        Field names mirror the Pydantic ``Config`` model fields in camelCase.
+        Special groupings are merged into nested sub-objects:
+
+        - ``timePolicyKind`` / ``timePolicySeconds``  → ``config["timePolicy"]``
+          (``{"kind": ..., "seconds": ...}``)
+        - ``retryEnabled`` / ``retryMaxAttempts`` / ``retryBackoffSeconds`` /
+          ``retryOn``                                   → ``config["retry"]``
+          (``{"kind": "retry_policy", "maxAttempts": ..., "backoffSeconds": ...,
+          "retryOn": ...}``; ``retryEnabled=False`` with no other retry keys
+          stores ``config["retry"] = None``)
+
+        All other kwargs are written straight into ``config`` via
+        ``cfg.update(fields)`` (after the special groupings are popped).
+
+        This is the form used by the prism CLI (``prism config get/set``) and
+        is the recommended public surface — it's ergonomic, matches the
+        generated CLI flag names one-for-one, and keeps the flat Pydantic
+        field names as the single source of truth.
+
+    Form 2 — Nested dict (INTERNAL USE ONLY; CLI uses flat form):
+        ``set_config_section(sc, timePolicy={"kind": "timeout", "seconds": 120},
+        retry={"maxAttempts": 5, "backoffSeconds": 2})``
+
+        Write the already-nested sub-objects directly. Useful for internal
+        composition when callers already hold a fully-formed ``timePolicy`` /
+        ``retry`` dict (e.g., assembling a scenario programmatically from
+        another Pydantic model, or when migrating from older code that
+        produced the nested shape directly).
+
+        Because the nested form bypasses the camelCase→sub-object translation
+        done by the flat form, callers using the dict form must supply the
+        full sub-object in one shot; partial dicts will NOT be merged with
+        any pre-existing values.
+
+    Why both forms exist:
+        The flat form was introduced for CLI ergonomics — the CLI maps each
+        Pydantic field to a top-level flag, and the flat form lets it pass
+        those flags through unchanged. The dict form predates the CLI and is
+        retained for internal callers that already produce nested dicts.
+        New external code should prefer the flat form; the dict form is
+        documented here for completeness and for internal composition.
+
+    Args:
+        scenario: Scenario dict (will NOT be mutated; a deep copy is returned).
+        **fields: Either flat camelCase flags (Form 1) or nested sub-objects
+            like ``timePolicy={...}`` / ``retry={...}`` (Form 2).
+
+    Returns:
+        A new scenario dict with ``config`` updated and ``validate_scenario``
+        re-run.
+    """
     sc = _deep_copy(scenario)
     cfg = sc.setdefault("config", {})
     if "timePolicyKind" in fields or "timePolicySeconds" in fields:
