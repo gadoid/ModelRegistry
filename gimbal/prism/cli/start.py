@@ -1,11 +1,12 @@
-"""gimbal prism 子命令实现 — start。
+"""gimbal prism 子命令实现 — start (web server launcher).
 
-v0 仅 1 子命令: start (启动 FastAPI web 配置器)。
+Moved from gimbal/prism/cli.py to make room for the new cli/ subpackage
+(start, convert, inspect, validate, to_steps, explain, meta, user,
+resource, config). The old single-file module is removed in Task 9.
 """
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import Optional
 
