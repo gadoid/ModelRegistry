@@ -14,6 +14,8 @@ from typing import Any
 
 import yaml
 
+from pydantic import ValidationError as PydanticValidationError
+
 from gimbal.prism.builder import (
     AuthDraft,
     ResourceDraft,
@@ -247,3 +249,41 @@ def ndjson_to_step_fragments(
         cfg_raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
         rules["services"].update(cfg_raw.get("services") or {})
     return [convert_record(e, rules) for e in events]
+
+
+def load_scenario(path: Path) -> dict[str, Any]:
+    """Load scenario YAML into a plain dict. Does NOT validate."""
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def save_scenario(scenario: dict[str, Any], path: Path) -> None:
+    """Write scenario dict back to YAML. Preserves key order."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.safe_dump(scenario, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
+def validate_scenario(scenario: dict[str, Any]) -> None:
+    """Validate scenario dict against gimbal.schema.Scenario.
+
+    Raises pydantic.ValidationError on failure.
+    """
+    Scenario.model_validate(scenario)
+
+
+def explain_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
+    """Produce structured summary of a scenario."""
+    return {
+        "scenarioId": scenario.get("scenarioId"),
+        "meta": scenario.get("meta", {}),
+        "config": {
+            "services": list((scenario.get("config") or {}).get("services", {}).keys()),
+            "users": list((scenario.get("config") or {}).get("users", {}).keys()),
+            "timePolicy": (scenario.get("config") or {}).get("timePolicy"),
+            "retry": (scenario.get("config") or {}).get("retry"),
+        },
+        "steps_count": len(scenario.get("steps") or []),
+        "resources": list((scenario.get("resource") or {}).keys()),
+    }

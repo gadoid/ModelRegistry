@@ -142,3 +142,33 @@ def test_ndjson_to_step_fragments_returns_list():
     assert len(frags) == 1
     assert "api" in frags[0]
     assert "request" in frags[0]
+
+
+def test_load_save_scenario_roundtrip(tmp_path):
+    events = [{"host": "api.example.com", "method": "GET", "path": "/x",
+               "headers": {}, "body": "", "response": {"status": 200}}]
+    draft = core.load_config(None, events)
+    scenario = core.render(draft)
+    p = tmp_path / "sc.yaml"
+    core.save_scenario(scenario, p)
+    loaded = core.load_scenario(p)
+    assert loaded["scenarioId"] == scenario["scenarioId"]
+
+
+def test_validate_scenario_passes_for_valid():
+    events = [{"host": "api.example.com", "method": "GET", "path": "/x",
+               "headers": {}, "body": "", "response": {"status": 200}}]
+    draft = core.load_config(None, events)
+    scenario = core.render(draft)
+    core.validate_scenario(scenario)  # 不抛 = 通过
+
+
+def test_explain_scenario_returns_summary():
+    events = [{"host": "api.example.com", "method": "GET", "path": "/x",
+               "headers": {}, "body": "", "response": {"status": 200}}]
+    draft = core.load_config(None, events)
+    scenario = core.render(draft)
+    summary = core.explain_scenario(scenario)
+    assert "meta" in summary
+    assert "steps_count" in summary
+    assert summary["steps_count"] == 1
