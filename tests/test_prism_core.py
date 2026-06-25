@@ -76,3 +76,40 @@ def test_render_full_yaml():
     result = core.render(draft)
     assert result["scenarioId"] == "sc_sample"
     assert "admin" in result["config"]["users"]
+
+
+def test_write_returns_yaml_when_no_output():
+    events = [{"host": "api.example.com", "method": "GET", "path": "/x",
+               "headers": {}, "body": "", "response": {"status": 200}}]
+    draft = core.load_config(None, events)
+    scenario = core.render(draft)
+    result = core.ConvertResult(scenario=scenario, output_path=None, yaml_text="",
+                                event_count=1, step_count=1)
+    core.write(result, None)
+    assert "scenarioId:" in result.yaml_text
+    assert result.output_path is None
+
+
+def test_write_writes_file_when_output_given(tmp_path):
+    events = [{"host": "api.example.com", "method": "GET", "path": "/x",
+               "headers": {}, "body": "", "response": {"status": 200}}]
+    draft = core.load_config(None, events)
+    scenario = core.render(draft)
+    result = core.ConvertResult(scenario=scenario, output_path=None, yaml_text="",
+                                event_count=1, step_count=1)
+    out = tmp_path / "out.yaml"
+    core.write(result, out)
+    assert out.exists()
+    assert "scenarioId:" in out.read_text(encoding="utf-8")
+    assert result.output_path == out
+
+
+def test_convert_ndjson_to_scenario_full_pipeline(tmp_path):
+    out = tmp_path / "sc.yaml"
+    result = core.convert_ndjson_to_scenario(
+        FIXTURES / "minimal_captures.ndjson",
+        None, out,
+    )
+    assert result.event_count == 1
+    assert result.step_count == 1
+    assert out.exists()

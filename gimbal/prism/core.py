@@ -146,3 +146,42 @@ def load_config(
         resources=resources,
         steps=[StepDraft(capture=e) for e in events],
     )
+
+
+def write(result: ConvertResult, output_path: Path | None) -> None:
+    """Serialize result.scenario to YAML and write to output_path (if given).
+
+    Mutates result.yaml_text and result.output_path.
+    """
+    yaml_text = yaml.safe_dump(
+        result.scenario, allow_unicode=True, sort_keys=False,
+    )
+    result.yaml_text = yaml_text
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(yaml_text, encoding="utf-8")
+        result.output_path = output_path
+
+
+def convert_ndjson_to_scenario(
+    ndjson_path: Path,
+    config_path: Path | None,
+    output_path: Path | None = None,
+) -> ConvertResult:
+    """Full pipeline: NDJSON + optional config → Scenario YAML.
+
+    Pipeline: parse → load_config → render → write.
+    """
+    events = parse_ndjson(ndjson_path)
+    draft = load_config(config_path, events)
+    scenario = render(draft)
+    enabled_steps = [s for s in draft.steps if s.enabled]
+    result = ConvertResult(
+        scenario=scenario,
+        output_path=None,
+        yaml_text="",
+        event_count=len(events),
+        step_count=len(enabled_steps),
+    )
+    write(result, output_path)
+    return result
