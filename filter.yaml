@@ -35,5 +35,5 @@ profiles:
         methods: [POST]
 
       # —— 财务:开票批次(大写 Finance,与上面大小写不同,单独一条) ——
-      - path_regex: "^/api/Finance/ReceiveInvoiceBatch/(checkStep1|checkStep2|batchOrderEdit|applyPage|batchDetail|applyDetail|allocationInvoiceFee)$"
+      - path_regex: "^/api/Finance/ReceiveInvoiceBatch/(checkStep1|checkStep2|batchOrderEdit|applyPage|batchDetail|applyDetail|applyPage|allocationInvoiceFee|allocationInvoiceOrder)$"
         methods: [POST]
