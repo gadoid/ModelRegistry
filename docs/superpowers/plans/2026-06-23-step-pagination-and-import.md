@@ -1125,6 +1125,8 @@ async function _importNdjsonFile(file) {
 }
 ```
 
+> **v0.5.9 更新**: 上述 `_importNdjsonFile` 函数体不变, 但它调用的 `_mergeCapturesIntoSteps` 已去掉 method+path dedup (CHANGELOG v0.5.9)。所以 45 行 NDJSON 会生成 45 个 step, 不再被去重折叠到 24。
+
 > **向后兼容**: 保留 `importFromFile` 作为别名 (若有外部调用):
 > ```javascript
 > const importFromFile = _importNdjsonFile;

@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.5.9 (2026-06-30) — Step 导入去掉 method+path dedup
+
+### 修复 (Fixed)
+
+- **`_mergeCapturesIntoSteps` 不再按 `method|path` 去重**
+  - 旧行为: NDJSON 45 行 capture (含 21 行重复 method+path) → 只生成 24 个 step
+  - 新行为: 45 行 capture → 45 个 step (1:1)
+  - 适用入口: NDJSON 文件选择器导入 / 拖拽导入 / WebSocket `capture` 自动注入 / 自动注入 toggle
+  - 影响: 用户主动拖入 NDJSON 时, 历史接口重复调用 (如轮询 / 静态资源) 都会成为独立 step
+- **WebSocket `hello` 帧 (重连) 避免重复 step**
+  - 旧行为: WS 重连会重新灌入所有历史 captures 为 step (因去重失效会产生大量重复)
+  - 新行为: WS hello + autoInjectToSteps=true 分支, 在 `_mergeCapturesIntoSteps` 之前先 `state.steps = []`, 整体替换
+  - 仅 WS hello 帧清空 (单条 capture 帧不清 — 单条事件不会重复)
+
+### 测试 (Tests)
+
+- 新增 `tests/fixtures/dup_captures.ndjson` (5 行, 含重复 `GET /`)
+- 新增 `tests/test_step_dedup_removed.py` (7 个测试: 函数体静态校验 + WS hello 清空 + server 端不去重)
+- `tests/jsdom_harness.js` `import-ndjson` scenario 改用 dup fixture, 验证 5 → 5 step
+
+### 不变 (Unchanged)
+
+- server 端 `CaptureReader.append/read` (按行追加, 不去重)
+- WebSocket `capture` 帧的 `state.captures` 层 `ts+method+path` 去重 (`app.js:1390`) — 它管的是 captures 数组不重复, 与 step 无关
+- NDJSON → server inject → list 全链路
+
 ## v0.6.0 (2026-06-24) — Headless CLI (prism-core)
 
 ### 新增 (Added)

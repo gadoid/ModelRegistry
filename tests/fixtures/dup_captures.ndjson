@@ -1,0 +1,5 @@
+{"ts": 1718678400.0, "method": "GET", "host": "api.example.com", "scheme": "https", "port": 443, "path": "/", "query": {}, "headers": {}, "body": "", "response": {"status": 200}, "response_ms": 10}
+{"ts": 1718678401.0, "method": "GET", "host": "api.example.com", "scheme": "https", "port": 443, "path": "/api/login", "query": {}, "headers": {}, "body": "", "response": {"status": 200}, "response_ms": 10}
+{"ts": 1718678402.0, "method": "GET", "host": "api.example.com", "scheme": "https", "port": 443, "path": "/", "query": {}, "headers": {}, "body": "", "response": {"status": 200}, "response_ms": 10}
+{"ts": 1718678403.0, "method": "POST", "host": "api.example.com", "scheme": "https", "port": 443, "path": "/api/order", "query": {}, "headers": {}, "body": "{}", "response": {"status": 201}, "response_ms": 10}
+{"ts": 1718678404.0, "method": "GET", "host": "api.example.com", "scheme": "https", "port": 443, "path": "/api/order/1", "query": {}, "headers": {}, "body": "", "response": {"status": 200}, "response_ms": 10}

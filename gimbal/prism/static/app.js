@@ -1236,16 +1236,11 @@ async function _pullCaptures() {
   updateCapturesBadge();
 }
 async function _mergeCapturesIntoSteps() {
-  const sigSet = new Set(
-    state.steps
-      .map((s) => `${s.capture?.method || s.api?.method || ''}|${s.capture?.path || s.api?.path || ''}`)
-      .filter((x) => x !== '|'),
-  );
+  // v0.5.6: 不再按 method+path 去重 — 每条 capture 都生成一个 step,
+  // 即使 method+path 完全相同 (如轮询 / 重复接口调用)。
+  // WS hello 帧 (整体 replay) 在调用前清空 state.steps, 防止重连产生重复。
   let added = 0;
   for (const c of state.captures) {
-    const sig = `${c.method || ''}|${c.path || ''}`;
-    if (!sig.replace('|', '') || sigSet.has(sig)) continue;
-    sigSet.add(sig);
     const ns = _eventToStepDraft(c);
     ns.__sid = uid('step');
     state.steps.push(ns);
@@ -1378,7 +1373,9 @@ function connectWs() {
         updateCapturesBadge();
         renderCaptures();
         // v0.5.4: 如果开启了"自动注入", 把 hello 里的历史 captures 也合到 steps
+        // v0.5.6: 重连会整体 replay 历史 captures — 先清 state.steps, 避免产生重复 step
         if (state.autoInjectToSteps) {
+          state.steps = [];
           _mergeCapturesIntoSteps();
         }
       }
@@ -1859,7 +1856,7 @@ window.addEventListener('unhandledrejection', (e) => {
       state.autoInjectToSteps = autoInj.checked;
       if (textEl) textEl.dataset.on = String(autoInj.checked);
       if (state.autoInjectToSteps) {
-        // 立即灌入当前所有 captures (用 _mergeCapturesIntoSteps 已有 dedup)
+        // 立即灌入当前所有 captures (v0.5.6 起 _mergeCapturesIntoSteps 不再 dedup)
         const before = state.steps.length;
         _mergeCapturesIntoSteps();
         const added = state.steps.length - before;

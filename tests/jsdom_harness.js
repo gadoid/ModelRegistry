@@ -12,6 +12,7 @@ const fs = require('fs');
 const APP_JS = 'D:/M/ModelRegistry/gimbal/prism/static/app.js';
 const INDEX_HTML = 'D:/M/ModelRegistry/gimbal/prism/static/index.html';
 const FIXTURE_NDJSON = 'D:/M/ModelRegistry/tests/fixtures/sample_captures.ndjson';
+const DUP_FIXTURE_NDJSON = 'D:/M/ModelRegistry/tests/fixtures/dup_captures.ndjson';
 
 const scenario = process.argv[2] || 'initial-load';
 
@@ -153,26 +154,35 @@ function waitForInit() {
   }
 
   if (scenario === 'import-ndjson') {
-    const lines = fs.readFileSync(FIXTURE_NDJSON, 'utf-8').trim().split('\n').filter(Boolean);
-    const ev = JSON.parse(lines[0]);
+    // v0.5.6: 用 dup_captures.ndjson (5 行含 1 行 method+path 重复) 验证不再 dedup
+    const lines = fs.readFileSync(DUP_FIXTURE_NDJSON, 'utf-8').trim().split('\n').filter(Boolean);
     const sid = encodeURIComponent(w.state?.sessionId || 'default');
     fetchCalls.length = 0;
-    const r1 = await w.fetch(`/api/captures/inject?sid=${sid}`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(ev),
-    });
+    injectedEvents.length = 0;
+    // 模拟 _importNdjsonFile 完整链路: 逐行 inject → pull → merge
+    let injectStatus = null;
+    for (const line of lines) {
+      const ev = JSON.parse(line);
+      const r1 = await w.fetch(`/api/captures/inject?sid=${sid}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(ev),
+      });
+      injectStatus = r1.status;
+    }
     const r2 = await w.fetch(`/api/captures?sid=${sid}`);
     const d = await r2.json();
     w.state.captures = d.events || [];
     const before = w.state.steps.length;
     await w._mergeCapturesIntoSteps();
+    const after = w.state.steps.length;
     emitReport(w, {
-      note: 'after _importNdjsonFile flow',
-      injectStatus: r1.status,
+      note: 'after _importNdjsonFile flow (dup fixture)',
+      injectStatus,
       pullStatus: r2.status,
       capturesCount: w.state.captures.length,
       stepsBefore: before,
-      stepsAfter: w.state.steps.length,
+      stepsAfter: after,
+      expectedStepsAfter: lines.length,        // v0.5.6: 应等于 fixture 行数, 不再去重
       domUpdates: {
         stepListHidden: w.document.getElementById('step-list')?.hidden,
         sidebarHasTab: (w.document.getElementById('step-sidebar')?.innerHTML || '').includes('page-tab'),
