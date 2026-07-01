@@ -6,6 +6,7 @@ submodule's APIRouter.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -25,6 +26,41 @@ from gimbal.prism.state import (
 logger = logging.getLogger("gimbal.prism.server")
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# v0.5.9: Windows 上 asyncio proactor event loop 在 socket 清理时会冒
+# ConnectionResetError (WinError 10054), 来自 stdlib asyncio/proactor_events.py:165
+# 的 ``self._sock.shutdown(socket.SHUT_RDWR)`` (finally 块但无内层 try/except).
+# 默认 exception handler 会刷 "Unhandled error in task", 误导排查。
+#
+# 这里注册一个 silencing handler:
+#   - ConnectionResetError (errno 10054) → 静默吞掉
+#   - 其它异常 → 走 default_exception_handler (uvicorn 日志照常)
+#
+# 注意: 此 handler 是 Windows proactor 专属 (Linux epoll 没这条路径),
+# 但因为 sys.platform 守好, 不会在 Linux 上误吞任何 ConnectionResetError。
+# ────────────────────────────────────────────────────────────────────────────
+
+
+_WIN_PROACTOR_ERRNOS = frozenset({10054})  # WSAECONNRESET
+
+
+def _silence_proactor_connection_reset(loop: asyncio.AbstractEventLoop, context: dict) -> None:
+    """asyncio exception handler: 静默吞 Windows proactor socket 清理时冒的
+    ConnectionResetError (WinError 10054)。
+
+    触发场景: 浏览器 WS 客户端断连 (页面刷新 / 网络抖动 / 浏览器关闭),
+    transport._force_close → _call_connection_lost → shutdown(SHUT_RDWR)
+    抛 WinError 10054。属于 OS 层清理错误, 业务逻辑已正常走完。
+    """
+    exc = context.get("exception")
+    if isinstance(exc, ConnectionResetError):
+        # OS 设置的 ConnectionResetError: errno=10054 (win) 或 winerror=10054
+        if (exc.errno in _WIN_PROACTOR_ERRNOS
+                or getattr(exc, "winerror", None) in _WIN_PROACTOR_ERRNOS):
+            return  # 静默 — 这是 OS 层 socket 清理, 与业务无关
+    loop.default_exception_handler(context)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -50,6 +86,9 @@ async def lifespan(app: FastAPI):
     app.state.capture_watcher = CaptureWatcher(home)
     app.state.ui_spec_cache = None  # Phase 2 填充
     app.state.registry_spec_cache = None  # Phase 3 填充
+    # v0.5.9: 装 proactor 清理异常 silencing handler (Windows only 真正起作用)
+    loop = asyncio.get_running_loop()
+    loop.set_exception_handler(_silence_proactor_connection_reset)
     logger.info("[prism] GIMBAL_HOME=%s", home)
     try:
         yield

@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.5.9 (2026-06-30) — Step 导入去掉 method+path dedup
+## v0.5.9 (2026-06-30) — Step 导入去掉 method+path dedup + Windows proactor 静默
 
 ### 修复 (Fixed)
 
@@ -13,12 +13,23 @@
   - 旧行为: WS 重连会重新灌入所有历史 captures 为 step (因去重失效会产生大量重复)
   - 新行为: WS hello + autoInjectToSteps=true 分支, 在 `_mergeCapturesIntoSteps` 之前先 `state.steps = []`, 整体替换
   - 仅 WS hello 帧清空 (单条 capture 帧不清 — 单条事件不会重复)
+- **Windows proactor socket 清理异常静默 (WinError 10054 / ConnectionResetError)**
+  - 旧行为: 浏览器 WS 客户端断连 → asyncio transport `_call_connection_lost` 调 `socket.shutdown(SHUT_RDWR)` 抛 `ConnectionResetError` (stdlib `proactor_events.py:165` finally 块无内层 try/except) → 默认 handler 刷 "Unhandled error in task" 误导排查
+  - 新行为: app lifespan 注册 `_silence_proactor_connection_reset` — `ConnectionResetError`(errno/winerror=10054) 静默吞, 其它异常继续走 default_exception_handler
+  - 仅静默 OS 层 socket 清理错误, **不**影响业务异常处理
+  - 与业务代码无关 (10054 是 stdlib asyncio 在 Windows 上的固有问题, Linux 上 epoll 没这条路径)
 
 ### 测试 (Tests)
 
 - 新增 `tests/fixtures/dup_captures.ndjson` (5 行, 含重复 `GET /`)
 - 新增 `tests/test_step_dedup_removed.py` (7 个测试: 函数体静态校验 + WS hello 清空 + server 端不去重)
+- 新增 `tests/test_silence_proactor_connection_reset.py` (5 个测试: lifespan 注册 handler + 静默 10054 + 业务异常仍走 default)
 - `tests/jsdom_harness.js` `import-ndjson` scenario 改用 dup fixture, 验证 5 → 5 step
+
+### 文件变更
+
+- `gimbal/prism/static/app.js`: `_mergeCapturesIntoSteps` 去 sigSet; WS hello + autoInject 分支加 `state.steps = []`
+- `gimbal/prism/server/app.py`: 加 `_silence_proactor_connection_reset` handler; lifespan 启动期 `loop.set_exception_handler(...)`
 
 ### 不变 (Unchanged)
 

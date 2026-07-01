@@ -1,0 +1,39 @@
+# ./.gimbal/filters.yaml
+mode: include
+default_profile: e2e_settlement_writeoff_yhr
+
+profiles:
+  e2e_settlement_writeoff_yhr:
+    description: 订单到应收核销 e2e 全链路(yhr-1 30步场景)接口白名单
+    rules:
+      # —— 订单委托创建 orderEntrust ——
+      - path_regex: "^/api/order/orderEntrust/(orderAdd|orderPage)$"
+        methods: [POST]
+
+      # —— 订单主流程 order/order ——
+      - path_regex: "^/api/order/order/(orderDetail|orderAdd|orderBook|orderPage|checkGenerateOrderSub|generateOrderSub|orderConfirmAccount|changeInvoiceApply)$"
+        methods: [POST]
+
+      # —— 订单费用 order/orderFee ——
+      - path_regex: "^/api/order/orderFee/(bookRealAmountEdit|toggleRealAmount|realAmountLockSubmit|putOrderItem)$"
+        methods: [POST]
+
+      # —— 审批流程 home/audit ——
+      - path_regex: "^/api/home/audit/(auditRecord|auditDetail|auditExecute|auditPage)$"
+        methods: [POST]
+
+      # —— 财务:对账/开票(小写 finance) ——
+      - path_regex: "^/api/finance/accountFee/financePutList$"
+        methods: [POST]
+      - path_regex: "^/api/finance/receiveAccount/(orderReceiveAccountEdit|receiveAccountDetail|receiveConfirmList|accountConfirm)$"
+        methods: [POST]
+      - path_regex: "^/api/finance/receiveInvoice/(invoiceAddCheck|invoiceAdd)$"
+        methods: [POST]
+
+      # —— 财务:核销(小写 finance) ——
+      - path_regex: "^/api/finance/receiveWriteoff/(feeWriteoffCheck|orderFeePage|writeoffBatch|writeoffPage)$"
+        methods: [POST]
+
+      # —— 财务:开票批次(大写 Finance,与上面大小写不同,单独一条) ——
+      - path_regex: "^/api/Finance/ReceiveInvoiceBatch/(checkStep1|checkStep2|batchOrderEdit|applyPage|batchDetail|applyDetail|applyPage|allocationInvoiceFee|allocationInvoiceOrder)$"
+        methods: [POST]
