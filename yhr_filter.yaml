@@ -15,7 +15,7 @@ profiles:
         methods: [POST]
 
       # —— 订单费用 order/orderFee ——
-      - path_regex: "^/api/order/orderFee/(bookRealAmountEdit|toggleRealAmount|realAmountLockSubmit|putOrderItem)$"
+      - path_regex: "^/api/order/orderFee/(bookRealAmountEdit|toggleRealAmount|realAmountLockSubmit|putOrderItem|assetPush)$"
         methods: [POST]
 
       # —— 审批流程 home/audit ——
