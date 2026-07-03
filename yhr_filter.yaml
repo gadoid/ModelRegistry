@@ -11,7 +11,7 @@ profiles:
         methods: [POST]
 
       # —— 订单主流程 order/order ——
-      - path_regex: "^/api/order/order/(orderDetail|orderAdd|orderBook|orderPage|checkGenerateOrderSub|generateOrderSub|orderConfirmAccount|changeInvoiceApply)$"
+      - path_regex: "^/api/order/order/(orderDetail|orderAdd|orderBook|orderPage|checkGenerateOrderSub|generateOrderSub|orderConfirmAccount|changeInvoiceApply|orderNotice)$"
         methods: [POST]
 
       # —— 订单费用 order/orderFee ——
